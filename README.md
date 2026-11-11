@@ -4,6 +4,12 @@ An interactive, single-page look inside **Qwen2.5 7B Instruct**: how its 7.6 bil
 
 It is meant for people who are curious about how a language model works but have never looked inside one.
 
+<p align="center">
+  <img src="assets/screenshots/token-climb.gif" width="480" alt="3D view of the token 'is' climbing through Qwen2.5-7B's 28 layers, with attention arcs reaching back to earlier tokens at each layer and each layer's 28 attention heads shown beside it">
+  <br>
+  <sub>The token "is" climbing through all 28 layers. Arcs show it looking back at earlier tokens, and the blocks on the right are each layer's 28 attention heads, coloured by their real bias values.</sub>
+</p>
+
 ## What's on the page
 
 | Tab | What it shows |
@@ -14,6 +20,56 @@ It is meant for people who are curious about how a language model works but have
 | **Attention heads** | A 28 × 28 grid of every query head (and the 4 key heads) across all layers, coloured by bias size. Shows grouped-query attention: 7 query heads share each key/value head. |
 | **Layer by layer** | Charts comparing the 28 layers on norm gains, bias sizes and more, plus which layers are stored in the more precise Q6_K format. |
 | **Token embeddings** | Real embedding rows for a handful of tokens, with a rough similarity comparison. |
+
+## A look around
+
+The screenshots follow your GitHub theme (light or dark).
+
+### A guided 3D tour
+
+Each step explains one stage in plain language and says what is real and what is illustrative. At the attention step, the token "is" gathers information from the four tokens before it:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/tour-attention-dark.png">
+  <img src="assets/screenshots/tour-attention-light.png" alt="3D tour, step 4 of 9: attention arcs from the token 'is' back to 'The', 'capital', 'of' and 'France' in layer 0, next to the step's explanation">
+</picture>
+
+At the end, the model's real probabilities for the next token: " Paris" at 55%.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/tour-probabilities-dark.png">
+  <img src="assets/screenshots/tour-probabilities-light.png" alt="3D tour, step 8 of 9: bars above the output head showing next-token probabilities, with ' Paris' at 55% and a table of the top 8 candidates">
+</picture>
+
+### Every layer's real numbers
+
+Pick any of the 28 layers to see its 14 tensors with that layer's values on each box. Click a tensor for its details and a heatmap of its actual weights:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/layer-anatomy-dark.png">
+  <img src="assets/screenshots/layer-anatomy-light.png" alt="Layer anatomy view for layer 27: a block diagram of the attention and feed-forward tensors with real values on each box, and a details panel for attn_v with a weight heatmap">
+</picture>
+
+### Attention heads across the whole model
+
+All 28 layers × 28 query heads, plus the 4 key heads each group of 7 shares. Darker cells hold larger biases, and the very large ones sit in the first and last layers:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/attention-heads-dark.png">
+  <img src="assets/screenshots/attention-heads-light.png" alt="A 28 by 28 grid of query heads per layer in blue and a 28 by 4 grid of key heads in red, coloured by the largest bias value in each head">
+</picture>
+
+### Comparing layers, and where the parameters live
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/layer-by-layer-dark.png">
+  <img src="assets/screenshots/layer-by-layer-light.png" alt="Bar chart of the largest key-bias value in each of the 28 layers on a log scale, with layers 0 and 27 far above the rest">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/parameter-budget-dark.png">
+  <img src="assets/screenshots/parameter-budget-light.png" alt="Stacked bars showing that feed-forward matrices hold 74.9% of the 7.6 billion parameters, attention 10.8%, embeddings and output head 7.2% each, and norms and biases 0.004%">
+</picture>
 
 ## Open it
 
@@ -84,6 +140,7 @@ scripts/gguf_reader.py     GGUF parser and Q4_K / Q6_K dequantization
 scripts/extract_weights.py builds data/weights.json from the model file
 scripts/capture_probs.py   builds data/probabilities.json from a running Ollama
 scripts/build.py           combines src/ and data/ into docs/index.html
+assets/screenshots/        images used in this README
 ```
 
 ## License and credits
