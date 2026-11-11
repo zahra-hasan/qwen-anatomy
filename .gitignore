@@ -1,0 +1,8 @@
+# model files are large and downloaded separately (ollama pull qwen2.5:7b)
+*.gguf
+sha256-*
+
+__pycache__/
+*.pyc
+.DS_Store
+.claude/

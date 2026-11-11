@@ -1,0 +1,12 @@
+Qwen2.5-7B Anatomy
+
+This project includes data derived from the weights of Qwen2.5-7B-Instruct
+(the files in data/ and the values embedded in docs/index.html).
+
+Qwen2.5-7B-Instruct
+Copyright 2024 Alibaba Cloud
+Licensed under the Apache License, Version 2.0
+https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/main/LICENSE
+https://www.apache.org/licenses/LICENSE-2.0
+
+This project is not affiliated with or endorsed by Alibaba Cloud or the Qwen team.

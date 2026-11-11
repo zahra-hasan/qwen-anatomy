@@ -1,0 +1,1081 @@
+<title>Qwen2.5-7B Anatomy</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: sticky tab bar over one working area. Anatomy = layer stack | block diagram | tensor inspector. Colour encodes a tensor's job. */
+:root{
+  --bg:#EEF1F5; --surface:#FFFFFF; --ink:#131925; --muted:#566073; --line:#D3DAE4;
+  --attn:#2D55CC; --ffn:#AD640C; --norm:#0E8467; --embed:#7A45D2; --op:#7E8899;
+  --ok:#0E8467; --minor:#6B7588; --warn:#C27A12; --bad:#C0352A; --pos:#C8372B; --neg:#2D55CC;
+  --f-display:"Bricolage Grotesque","Avenir Next",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1218; --surface:#171D27; --ink:#E5E9F0; --muted:#9AA4B5; --line:#2B3443;
+  --attn:#7E9DFF; --ffn:#E6A24B; --norm:#3CC9A2; --embed:#B593F7; --op:#737D8F;
+  --ok:#3CC9A2; --minor:#8D97A9; --warn:#E6A24B; --bad:#FF6F61; --pos:#FF7565; --neg:#7397FF; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#0E1218; --surface:#171D27; --ink:#E5E9F0; --muted:#9AA4B5; --line:#2B3443;
+  --attn:#7E9DFF; --ffn:#E6A24B; --norm:#3CC9A2; --embed:#B593F7; --op:#737D8F;
+  --ok:#3CC9A2; --minor:#8D97A9; --warn:#E6A24B; --bad:#FF6F61; --pos:#FF7565; --neg:#7397FF; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:1320px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4vw,40px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:22px;font-weight:700}
+h3{font-size:16px;font-weight:600;font-family:var(--f-body)}
+p{margin:0}
+.mono{font-family:var(--f-mono)}
+.muted{color:var(--muted)}
+.num{font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--attn);outline-offset:2px}
+
+header.top{padding-block:28px 18px;display:grid;gap:14px}
+.sub{color:var(--muted);max-width:75ch}
+.specs{display:flex;flex-wrap:wrap;gap:8px}
+.spec{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:6px 10px;display:grid;line-height:1.25}
+.spec b{font-family:var(--f-mono);font-weight:500;font-size:15px;font-variant-numeric:tabular-nums}
+.spec span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+
+nav.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+nav.tabs .wrap{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+.tab{border:0;background:none;padding:12px 12px 10px;border-bottom:2px solid transparent;cursor:pointer;color:var(--muted);white-space:nowrap;font-weight:500}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.tab:hover{color:var(--ink)}
+main{padding-block:22px 60px}
+.view{display:grid;gap:18px}
+.lede{max-width:72ch;color:var(--muted)}
+.lede b{color:var(--ink);font-weight:600}
+
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+
+/* Anatomy */
+.anatomy{display:grid;grid-template-columns:150px minmax(0,1fr) minmax(0,400px);gap:18px;align-items:start}
+.stack{display:grid;gap:2px;align-content:start;min-width:0}
+.sitem{display:grid;grid-template-columns:46px 1fr;align-items:center;gap:6px;border:1px solid transparent;background:var(--surface);border-radius:4px;padding:3px 6px;cursor:pointer;text-align:left;font-size:12px}
+.sitem.g{grid-template-columns:1fr;padding:6px 8px;font-weight:500}
+.sitem.g.embed{border-left:3px solid var(--embed)} .sitem.g.out{border-left:3px solid var(--embed)} .sitem.g.normi{border-left:3px solid var(--norm)}
+.sitem:hover{border-color:var(--line)}
+.sitem[aria-current="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.sitem .lab{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.obar{height:6px;border-radius:3px;background:color-mix(in srgb,var(--bad) 70%,var(--surface))}
+.dot{width:7px;height:7px;border-radius:50%}
+.stackhead{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:2px 2px 6px}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;min-width:0}
+.lhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.lnav{display:flex;gap:6px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:5px;padding:4px 10px;cursor:pointer;font-size:13px}
+.btn:hover{border-color:var(--ink)}
+.btn[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+
+svg.diagram{width:100%;height:auto;display:block;max-width:560px;margin:0 auto}
+.dg text{font-family:var(--f-mono);fill:var(--ink)}
+.dg .t2{fill:var(--muted)}
+.node{cursor:pointer}
+.node rect{stroke-width:1.2}
+.node:hover rect,.node:focus rect{stroke-width:2.2}
+.node:focus{outline:none}
+.node.sel rect{stroke-width:3}
+.r-attn rect{fill:color-mix(in srgb,var(--attn) 11%,var(--surface));stroke:var(--attn)}
+.r-ffn rect{fill:color-mix(in srgb,var(--ffn) 12%,var(--surface));stroke:var(--ffn)}
+.r-norm rect{fill:color-mix(in srgb,var(--norm) 12%,var(--surface));stroke:var(--norm)}
+.node rect.trk{fill:var(--line);stroke:none}
+.r-attn rect.lvl{fill:var(--attn);stroke:none} .r-ffn rect.lvl{fill:var(--ffn);stroke:none} .r-norm rect.lvl{fill:var(--norm);stroke:none}
+.r-embed rect{fill:color-mix(in srgb,var(--embed) 12%,var(--surface));stroke:var(--embed)}
+.lstripe{cursor:pointer}
+.lstripe rect{fill:color-mix(in srgb,var(--embed) 6%,var(--surface));stroke:var(--line)}
+.lstripe:hover rect,.lstripe:focus rect{stroke:var(--ink);stroke-width:1.5}
+.lstripe:focus{outline:none}
+.r-op rect{fill:var(--bg);stroke:var(--op);stroke-dasharray:4 3}
+.wire{stroke:var(--muted);stroke-width:1.2;fill:none}
+.resid{stroke:var(--embed);stroke-width:6;opacity:.35}
+.addc{fill:var(--surface);stroke:var(--embed);stroke-width:1.5}
+
+.detail{display:grid;gap:14px}
+.dname{font-family:var(--f-mono);font-size:14px;word-break:break-all}
+.role{display:inline-block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;padding:2px 8px;border-radius:3px;color:var(--surface)}
+.role.attn{background:var(--attn)} .role.ffn{background:var(--ffn)} .role.norm{background:var(--norm)} .role.embed{background:var(--embed)}
+dl.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0;font-size:13.5px}
+dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;font-variant-numeric:tabular-nums;min-width:0}
+.box{border-top:1px solid var(--line);padding-top:12px;display:grid;gap:8px}
+.box h4{margin:0;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.links{display:flex;flex-wrap:wrap;gap:6px}
+
+.hm{display:grid;gap:0;width:100%;max-width:340px;border:1px solid var(--line)}
+.hm div{aspect-ratio:1}
+.cap{font-size:12.5px;color:var(--muted)}
+
+/* bars */
+.sbar{display:flex;height:34px;border-radius:5px;overflow:hidden;border:1px solid var(--line)}
+.sbar button{border:0;padding:0;min-width:3px;cursor:pointer;position:relative}
+.sbar button:hover,.sbar button[aria-pressed="true"]{filter:brightness(1.12);box-shadow:inset 0 0 0 2px var(--ink)}
+table.t{border-collapse:collapse;width:100%;font-size:14px}
+table.t th{font-weight:500;color:var(--muted);text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}
+table.t td{padding:7px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+table.t td.r,table.t th.r{text-align:right}
+table.t tr.hl td{background:color-mix(in srgb,var(--ink) 6%,var(--surface))}
+.scroll{overflow-x:auto}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:18px}
+
+/* heads */
+.heads{display:grid;gap:1px;min-width:520px}
+.heads .c{aspect-ratio:1;cursor:pointer}
+.heads .c:hover{outline:2px solid var(--ink);outline-offset:-1px}
+.heads .c.hl{box-shadow:inset 0 0 0 2px var(--ink)}
+.heads .rl{font-family:var(--f-mono);font-size:10px;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;padding-right:4px;cursor:pointer}
+.heads .ch{font-family:var(--f-mono);font-size:9px;color:var(--muted);text-align:center;align-self:end}
+.heads .gh{font-family:var(--f-mono);font-size:10px;text-align:center;border-bottom:2px solid var(--line);color:var(--muted)}
+
+/* profile */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+svg.chart{width:100%;height:auto;display:block}
+svg.chart text{font-family:var(--f-mono);font-size:11px;fill:var(--muted)}
+svg.chart .gl{stroke:var(--line);stroke-width:1}
+svg.chart .bar{fill:var(--attn);cursor:pointer}
+svg.chart .bar:hover{fill:var(--ink)}
+.lanes{display:grid;gap:2px;min-width:640px;font-size:12px}
+.lanes .ll{color:var(--muted);padding-right:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lanes .lc{height:18px;background:var(--bg);border-radius:2px}
+.lanes .lh{font-family:var(--f-mono);font-size:10px;color:var(--muted);text-align:center}
+
+/* tokens */
+.trow{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:center}
+.tok{font-family:var(--f-mono);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tok small{color:var(--muted);font-size:11px;margin-left:4px}
+.hm.wide{max-width:none;border:0}
+.hm.wide div{aspect-ratio:auto;height:22px}
+select{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--ink)}
+.sim{font-family:var(--f-display);font-size:34px;font-weight:700;font-variant-numeric:tabular-nums}
+
+#tip{position:fixed;z-index:20;pointer-events:none;background:var(--ink);color:var(--surface);font-size:12px;font-family:var(--f-mono);padding:5px 8px;border-radius:4px;max-width:280px;line-height:1.35}
+
+
+/* learn */
+.learn{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,390px);gap:18px;align-items:start}
+.scene-wrap{position:relative;min-width:0}
+.scene{height:clamp(380px,66vh,700px);border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface);touch-action:pan-y}
+.scene canvas{display:block;width:100%;height:100%;cursor:grab}
+.zoom{position:absolute;right:calc(10px + env(safe-area-inset-right,0px));top:10px;display:flex;gap:6px}
+.zoom .btn{min-width:34px}
+.move{position:absolute;left:calc(10px + env(safe-area-inset-left,0px));bottom:10px;display:grid;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(3,30px);gap:3px}
+.move .btn{padding:0;font-size:15px;background:color-mix(in srgb,var(--surface) 88%,transparent)}
+#mup{grid-column:2;grid-row:1} #mleft{grid-column:1;grid-row:2} #mright{grid-column:3;grid-row:2} #mdown{grid-column:2;grid-row:3}
+.scene-wrap .move{bottom:auto;top:calc(clamp(380px,66vh,700px) - 110px)}
+.scene canvas:focus-visible{outline:2px solid var(--attn);outline-offset:-2px}
+.ctl3{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:10px;font-size:14px}
+.ctl3 label{color:var(--muted)}
+.chk{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.steppanel{display:grid;gap:14px}
+.stepdots{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:5px}
+.stepdots button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-family:var(--f-mono);font-size:12px;padding:0}
+.stepdots button:hover{border-color:var(--ink)}
+.stepdots button[aria-current="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+#stepbody{display:grid;gap:10px;font-size:15px}
+#stepbody ul{margin:0;padding-left:18px;display:grid;gap:4px}
+.eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.real{font-size:13.5px;border-left:3px solid var(--norm);padding:4px 0 4px 10px;color:var(--muted)}
+.toks{display:flex;flex-wrap:wrap;gap:6px}
+.toks span{border:1px solid var(--line);border-radius:4px;padding:3px 8px;display:grid;line-height:1.2;font-size:14px}
+.toks small{color:var(--muted);font-size:11px}
+.ptab{display:grid;gap:3px;font-size:13px}
+.prow{display:grid;grid-template-columns:72px 1fr 48px;gap:8px;align-items:center}
+.prow .mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .num{text-align:right;color:var(--muted)}
+.pbar{height:10px;background:var(--bg);border-radius:2px;overflow:hidden}
+.pbar i{display:block;height:100%;background:color-mix(in srgb,var(--muted) 60%,var(--surface))}
+.prow.top .pbar i{background:var(--attn)} .prow.top .mono{font-weight:600}
+.stepnav{display:flex;gap:6px;flex-wrap:wrap}
+.stepnav .btn:disabled{opacity:.4;cursor:default}
+.gloss{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:14px 22px;margin:12px 0 0}
+.gloss > div{border-top:1px solid var(--line);padding-top:10px}
+.gloss dt{font-weight:600} .gloss dd{margin:3px 0 0;font-size:14.5px} .gloss .q{color:var(--muted);font-size:13px;margin-top:5px;font-family:var(--f-mono)}
+input[type=search]{font:inherit;padding:5px 10px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--ink);min-width:0}
+@media (max-width:1000px){.learn{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:1100px){
+  .anatomy{grid-template-columns:130px minmax(0,1fr)}
+  .detail{grid-column:1 / -1;position:static}
+}
+@media (max-width:700px){
+  .anatomy{grid-template-columns:minmax(0,1fr)}
+  .stack{position:static;max-height:none;grid-template-columns:repeat(auto-fill,minmax(64px,1fr))}
+  .sitem{grid-template-columns:1fr;justify-items:start}
+  .sitem .obar{display:none}
+  .stackhead{grid-column:1 / -1}
+  .trow{grid-template-columns:96px minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header class="top wrap">
+  <h1>Qwen2.5-7B Anatomy</h1>
+  <p class="sub">An interactive look inside <b>Qwen2.5 7B Instruct</b>: how its weights are arranged and how it turns text into the next word. Everything here was read from the model file Ollama downloads for <span class="mono">qwen2.5:7b</span> (GGUF format, Q4_K_M quantization, 4.68 GB, <span class="mono">sha256-2bada8a7…</span>). Every shape, storage type and value on this page comes from that file. Click anything to inspect it.</p>
+  <div class="specs" id="specs"></div>
+</header>
+
+<nav class="tabs" aria-label="Views"><div class="wrap" role="tablist">
+  <button class="tab" role="tab" data-tab="learn">How it works (3D)</button>
+  <button class="tab" role="tab" data-tab="anatomy">Layer anatomy</button>
+  <button class="tab" role="tab" data-tab="budget">Where the 7.6B live</button>
+  <button class="tab" role="tab" data-tab="heads">Attention heads</button>
+  <button class="tab" role="tab" data-tab="profile">Layer by layer</button>
+  <button class="tab" role="tab" data-tab="tokens">Token embeddings</button>
+</div></nav>
+
+<main class="wrap">
+  <section class="view" id="v-learn" hidden>
+    <p class="lede">How Qwen2.5-7B turns <b>"The capital of France is"</b> into its next word, followed through every stage. The scene is built from this model's real shapes and values. Where something is only illustrative, the step says so.</p>
+    <div class="learn">
+      <div class="scene-wrap">
+        <div id="scene" class="scene" role="img" aria-label="3D view of one token passing through the 28 layers of Qwen2.5-7B"></div>
+        <div class="zoom"><button class="btn" id="zin" aria-label="Zoom in" title="Zoom in">+</button><button class="btn" id="zout" aria-label="Zoom out" title="Zoom out">−</button><button class="btn" id="zreset">Reset view</button></div>
+        <div class="move" role="group" aria-label="Move the view"><button class="btn" id="mup" aria-label="Move up the tower" title="Move up">↑</button><button class="btn" id="mleft" aria-label="Move left" title="Move left">←</button><button class="btn" id="mright" aria-label="Move right" title="Move right">→</button><button class="btn" id="mdown" aria-label="Move down the tower" title="Move down">↓</button></div>
+        <p class="cap" style="margin-top:8px"><b>Turn:</b> drag. <b>Move:</b> Shift-drag or right-drag, the arrow buttons, or the arrow keys after clicking the scene. <b>Zoom:</b> scroll, or + and −.</p>
+        <div class="ctl3"><label for="m3">Colour the layers by</label><select id="m3"></select><label class="chk"><input type="checkbox" id="h3" checked> Show the 28 heads in each layer</label></div>
+        <p class="cap" id="m3legend" style="margin-top:6px"></p>
+      </div>
+      <aside class="panel steppanel" aria-live="polite">
+        <ol class="stepdots" id="stepdots" aria-label="Steps"></ol>
+        <div id="stepbody"></div>
+        <div class="stepnav"><button class="btn" id="sprev">← Back</button><button class="btn" id="splay">Play tour</button><button class="btn" id="snext">Next →</button></div>
+      </aside>
+    </div>
+    <div class="panel">
+      <div class="lhead"><h2>Words you'll meet</h2><input id="gq" type="search" placeholder="Filter terms" aria-label="Filter terms"></div>
+      <dl class="gloss" id="gloss"></dl>
+    </div>
+  </section>
+
+  <section class="view" id="v-anatomy" hidden>
+    <p class="lede">Each word becomes a list of <b>3,584 numbers</b> (the residual stream, purple). It passes down through <b>28 identical layers</b>. Each layer reads the stream, computes an update with its 14 tensors, and adds that update back. Pick a layer on the left, then click a tensor in the diagram.</p>
+    <div class="legend">
+      <span><i style="background:var(--attn)"></i>Attention</span><span><i style="background:var(--ffn)"></i>Feed-forward</span><span><i style="background:var(--norm)"></i>Norms &amp; biases</span><span><i style="background:var(--embed)"></i>Embedding / residual stream</span>
+      <span><i style="background:color-mix(in srgb,var(--bad) 70%,var(--surface))"></i>Bar = how many q/k biases exceed ±10</span>
+      
+    </div>
+    <div class="anatomy">
+      <div class="stack" id="stack" aria-label="Model stack"></div>
+      <div class="panel">
+        <div class="lhead"><h2 id="lt"></h2><div class="lnav"><button class="btn" id="prev" aria-label="Previous layer">↑ Prev</button><button class="btn" id="next" aria-label="Next layer">Next ↓</button></div></div>
+        
+        <p class="cap" id="dgcap" style="margin-bottom:10px">Every number in the boxes is this layer's real value. The thin bar at the bottom of each box shows where this layer falls between the lowest and highest of all 28 layers. σ is the spread of the weights, from 8,192 values sampled across each matrix.</p>
+        <svg class="diagram dg" id="diagram" viewBox="0 0 500 808" role="group" aria-label="Layer block diagram"></svg>
+      </div>
+      <aside class="panel detail" id="detail" aria-live="polite"></aside>
+    </div>
+  </section>
+
+  <section class="view" id="v-budget" hidden>
+    <p class="lede">The model has <b class="num" id="ptotal"></b> parameters. Click a segment to see what it is. Most of the weight sits in the feed-forward matrices. The norms and biases are only a sliver, but they set the scale of everything flowing through each layer.</p>
+    <div class="panel"><h3>All parameters by job</h3><div class="sbar" id="bar-all" style="margin-top:10px"></div><div class="scroll" style="margin-top:12px"><table class="t" id="tbl-all"></table></div></div>
+    <div class="grid2">
+      <div class="panel"><h3>Inside one layer (every layer is the same size)</h3><div class="sbar" id="bar-layer" style="margin-top:10px"></div><div class="scroll" style="margin-top:12px"><table class="t" id="tbl-layer"></table></div></div>
+      <div class="panel"><h3>Bytes on disk by storage format</h3><div class="sbar" id="bar-disk" style="margin-top:10px"></div><div class="scroll" style="margin-top:12px"><table class="t" id="tbl-disk"></table></div>
+      <p class="cap" style="margin-top:10px">Q4_K packs 256 weights into 144 bytes (4.5 bits each). Q6_K packs 256 into 210 bytes (6.56 bits). F32 is a plain 4-byte float. Q4_K_M gives the more sensitive tensors Q6_K.</p></div>
+    </div>
+  </section>
+
+  <section class="view" id="v-heads" hidden>
+    <p class="lede">Each layer has <b>28 query heads</b> but only <b>4 key/value heads</b>. Heads 0–6 share key/value head 0, heads 7–13 share head 1, and so on. Colour shows the largest bias value in each head. Some biases are huge (beyond ±10), far larger than a typical weight. Click a cell to highlight its group and open that layer.</p>
+    <div class="legend"><span><i style="background:var(--attn)"></i>Query bias, max |value| per head (log scale)</span><span><i style="background:var(--bad)"></i>Key bias, max |value| per head (log scale)</span></div>
+    <div class="panel"><div class="scroll"><div class="heads" id="heads"></div></div></div>
+    <div class="panel" id="headinfo"></div>
+  </section>
+
+  <section class="view" id="v-profile" hidden>
+    <p class="lede">The 28 layers have the same shapes but different values. Pick a measurement to compare layers, and click a bar to open that layer. The first and last layers stand out on almost every measure.</p>
+    <div class="chips" id="metrics"></div>
+    <div class="panel"><p class="cap" id="mdesc" style="margin-bottom:8px"></p><svg class="chart" id="chart" viewBox="0 0 760 270"></svg></div>
+    <div class="panel"><h3>Storage format by layer</h3><p class="cap" style="margin:4px 0 10px">Q4_K_M stores two tensor types in the more precise Q6_K format in half of the layers, and Q4_K in the rest.</p><div class="scroll"><div class="lanes" id="lanes"></div></div>
+      <div class="legend" style="margin-top:10px"><span><i style="background:var(--attn)"></i>Q6_K (more precise)</span><span><i style="background:color-mix(in srgb,var(--attn) 25%,var(--surface))"></i>Q4_K</span></div></div>
+  </section>
+
+  <section class="view" id="v-tokens" hidden>
+    <p class="lede"><span class="mono">token_embd.weight</span> is a table with <b>152,064 rows</b>, one per token, and 3,584 numbers in each row. The model's first step is to look up the row for each input token. Below are the first 64 of the 3,584 numbers for a few real tokens from the model file (␣ marks a leading space).</p>
+    <div class="panel" style="display:grid;gap:6px" id="tokrows"></div>
+    <div class="panel" style="display:grid;gap:10px">
+      <h3>Compare two tokens</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><select id="ta" aria-label="First token"></select><span class="muted">vs</span><select id="tb" aria-label="Second token"></select></div>
+      <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:12px"><span class="sim" id="simv"></span><span class="cap">cosine similarity over the 64 dimensions shown. This is a rough hint only, since the full rows have 3,584 dimensions.</span></div>
+    </div>
+  </section>
+</main>
+<div id="tip" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const D = /*__DATA__*/null;
+const $ = s => document.querySelector(s);
+const NL = D.meta['qwen2.block_count'];
+const T = Object.fromEntries(D.tensors.map(t => [t.name, t]));
+const nf = n => Math.round(n).toLocaleString('en-US');
+const prod = a => a.reduce((x, y) => x * y, 1);
+const big = n => n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
+const sz = b => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : (b / 1e3).toFixed(1) + ' KB';
+const GLOBAL = new Set(['token_embd.weight', 'output_norm.weight', 'output.weight']);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const INFO = {
+  'token_embd.weight': {role:'embed', short:'Token embedding',
+    what:'A lookup table, not a matrix multiply. Each of the 152,064 tokens owns one row of 3,584 numbers, and that row becomes the starting residual stream for that token.'},
+  'attn_norm.weight': {role:'norm', short:'Pre-attention RMSNorm',
+    what:'3,584 gains. The layer rescales the residual stream to a standard size, then multiplies each dimension by its gain before attention reads it. Gains above 1 amplify a dimension and gains near 0 mute it.'},
+  'attn_q.weight': {role:'attn', short:'Query projection',
+    what:'Turns the stream into 28 queries of 128 numbers each (28 × 128 = 3,584), one per head: "what is this token looking for?"'},
+  'attn_k.weight': {role:'attn', short:'Key projection',
+    what:'Turns the stream into 4 keys of 128 numbers: "what does this token offer?" There are only 4 key heads, each shared by 7 query heads (grouped-query attention), so this matrix is 7× smaller than the query matrix.'},
+  'attn_v.weight': {role:'attn', short:'Value projection',
+    what:'Turns the stream into 4 values of 128 numbers: the content that gets copied when a query matches a key. Q4_K_M stores this in the more precise Q6_K in half of the layers.'},
+  'attn_q.bias': {role:'norm', short:'Query bias',
+    what:'A fixed offset added to every query. Llama-style models have no attention biases, but Qwen2 does, and they hold huge values (up to ±55). Each head uses its own 128 of these 3,584 numbers.'},
+  'attn_k.bias': {role:'norm', short:'Key bias',
+    what:'A fixed offset added to every key, 4 heads × 128. This holds the most extreme numbers in the model: 171 in layer 0 and 414 in layer 27. Large constant key components are a known way for heads to park attention on a default token.'},
+  'attn_v.bias': {role:'norm', short:'Value bias',
+    what:'A fixed offset added to every value, 4 × 128. These are much smaller than the q/k biases, except in layers 23–27.'},
+  'attn_output.weight': {role:'attn', short:'Attention output',
+    what:'Mixes the 28 heads\' results (28 × 128 = 3,584) back into one update, which is then added to the residual stream.'},
+  'ffn_norm.weight': {role:'norm', short:'Pre-FFN RMSNorm',
+    what:'3,584 gains applied before the feed-forward block. Gains above 1 amplify a dimension and gains near 0 mute it.'},
+  'ffn_gate.weight': {role:'ffn', short:'FFN gate',
+    what:'Expands 3,584 → 18,944. Each value passes through SiLU and decides how much of the matching "up" value gets through.'},
+  'ffn_up.weight': {role:'ffn', short:'FFN up',
+    what:'Expands 3,584 → 18,944, multiplied element by element with SiLU(gate).'},
+  'ffn_down.weight': {role:'ffn', short:'FFN down',
+    what:'Compresses the 18,944 hidden values back to 3,584 and writes them into the stream. Q6_K in half of the layers. Each column is one hidden neuron\'s "write" direction.'},
+  'output_norm.weight': {role:'norm', short:'Final RMSNorm',
+    what:'One last set of 3,584 gains, applied after layer 27 and before the output head. Mean 3.84, max 10.75, much larger than inside the layers.'},
+  'output.weight': {role:'embed', short:'Output head (unembedding)',
+    what:'Turns the final 3,584 numbers into one score for each of the 152,064 tokens. The 7B model does not share this with token_embd: it is a separate 545M-parameter table, stored in Q6_K.'},
+};
+
+const ALL = Array.from({length: NL}, (_, i) => i);
+
+const state = {layer: 0, tensor: 'attn_q.weight', group: null, metric: 'k_bias_maxabs'};
+
+/* ---------- tooltip ---------- */
+const tip = $('#tip');
+function showTip(e, html){ tip.innerHTML = html; tip.hidden = false; const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8); const y = e.clientY + 16 + tip.offsetHeight > innerHeight ? e.clientY - tip.offsetHeight - 10 : e.clientY + 16; tip.style.left = x + 'px'; tip.style.top = y + 'px'; }
+function hideTip(){ tip.hidden = true; }
+
+/* ---------- specs ---------- */
+const specs = [[nf(7615616512), 'parameters'], [NL, 'layers'], ['3,584', 'stream width'], ['28 / 4', 'query / kv heads'], ['128', 'head size'], ['18,944', 'FFN hidden'], ['152,064', 'vocabulary'], ['32,768', 'context'], ['339', 'tensors']];
+$('#specs').innerHTML = specs.map(([b, s]) => `<div class="spec"><b>${b}</b><span>${s}</span></div>`).join('');
+
+/* ---------- helpers ---------- */
+function tname(k, L = state.layer){ return GLOBAL.has(k) ? k : `blk.${L}.${k}`; }
+function shapeStr(t, compact){
+  if (t.dims.length === 1) return `${nf(t.dims[0])} values`;
+  const [i, o] = t.dims; return compact ? `${nf(i)}→${nf(o)}` : `${nf(i)} → ${nf(o)}`;
+}
+function pct(vals, p){ const a = vals.map(Math.abs).sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(p * a.length))] || 1; }
+function divCell(v, s){ const t = Math.max(-1, Math.min(1, v / s)); const p = Math.round(Math.abs(t) * 100); return `color-mix(in srgb, var(${t >= 0 ? '--pos' : '--neg'}) ${p}%, var(--surface))`; }
+
+/* ---------- stack ---------- */
+function renderStack(){
+  const maxO = Math.max(...D.layers.map(l => l.outliers));
+  let h = `<div class="stackhead">Model, top to bottom. Layers are numbered 0–27, as in the file.</div>`;
+  const g = (id, label, cls) => `<button class="sitem g ${cls}" data-g="${id}" aria-current="${state.tensor === id}">${label}</button>`;
+  h += g('token_embd.weight', 'Embedding', 'embed');
+  D.layers.forEach((l, i) => {
+    const cur = !GLOBAL.has(state.tensor) && state.layer === i;
+    h += `<button class="sitem" data-l="${i}" aria-current="${cur}" aria-label="Layer ${i}"><span class="lab">L${i}</span><span class="obar" style="width:${Math.max(4, l.outliers / maxO * 100)}%"></span></button>`;
+  });
+  h += g('output_norm.weight', 'Final norm', 'normi') + g('output.weight', 'Output head', 'out');
+  $('#stack').innerHTML = h;
+}
+$('#stack').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.g) state.tensor = b.dataset.g;
+  else { state.layer = +b.dataset.l; if (GLOBAL.has(state.tensor)) state.tensor = 'attn_q.weight'; }
+  renderAnatomy();
+});
+$('#stack').addEventListener('mousemove', e => {
+  const b = e.target.closest('button[data-l]'); if (!b) return hideTip();
+  const l = D.layers[+b.dataset.l];
+  showTip(e, `blk.${b.dataset.l}<br>${l.outliers} q/k biases beyond ±10<br>max |k bias| ${l.k_bias_maxabs}`);
+});
+$('#stack').addEventListener('mouseleave', hideTip);
+
+/* ---------- diagram ---------- */
+const NODES = [
+  {k:'attn_norm.weight', x:90, y:60, w:380, h:46},
+  {k:'attn_q.weight', x:90, y:140, w:190, h:68},
+  {k:'attn_k.weight', x:290, y:140, w:85, h:68},
+  {k:'attn_v.weight', x:385, y:140, w:85, h:68},
+  {k:'attn_q.bias', x:90, y:214, w:190, h:26, chip:true},
+  {k:'attn_k.bias', x:290, y:214, w:85, h:26, chip:true},
+  {k:'attn_v.bias', x:385, y:214, w:85, h:26, chip:true},
+  {op:true, x:90, y:272, w:380, h:54, t1:'attention · softmax(q·kᵀ/√128)·v', t2:'28 query heads read 4 shared k/v heads · RoPE on q, k'},
+  {k:'attn_output.weight', x:90, y:354, w:380, h:54},
+  {k:'ffn_norm.weight', x:90, y:454, w:380, h:46},
+  {k:'ffn_gate.weight', x:90, y:534, w:185, h:68},
+  {k:'ffn_up.weight', x:285, y:534, w:185, h:68},
+  {op:true, x:90, y:630, w:380, h:46, t1:'SiLU(gate) × up', t2:'18,944 hidden values per token'},
+  {k:'ffn_down.weight', x:90, y:704, w:380, h:54},
+];
+const BIASK = {'attn_q.bias':'q_bias_maxabs', 'attn_k.bias':'k_bias_maxabs', 'attn_v.bias':'v_bias_maxabs'};
+function statOf(k, L){
+  const l = D.layers[L];
+  if (k === 'attn_norm.weight') return l.attn_norm_mean;
+  if (k === 'ffn_norm.weight') return l.ffn_norm_mean;
+  if (BIASK[k]) return l[BIASK[k]];
+  return D.wstats[tname(k, L)].std;
+}
+function rankOf(k, L){
+  const v = statOf(k, L), all = ALL.map(i => statOf(k, i)), f = BIASK[k] ? Math.log : x => x;
+  const lo = f(Math.min(...all)), hi = f(Math.max(...all));
+  return {rank: all.filter(x => x > v).length + 1, rel: hi > lo ? (f(v) - lo) / (hi - lo) : 0};
+}
+const f2 = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+const f4 = v => v.toFixed(4);
+const ord = n => n + ((n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({1:'st', 2:'nd', 3:'rd'}[n % 10] || 'th'));
+const STATNAME = k => k.endsWith('norm.weight') ? 'mean gain' : BIASK[k] ? 'max |bias|' : 'σ (spread)';
+function renderDiagram(){
+  const L = state.layer; const svg = $('#diagram'); svg.setAttribute('viewBox', '0 0 500 808'); setCap(false);
+  const W = (x1, y1, x2, y2) => `<path class="wire" d="M${x1} ${y1} L${x2} ${y2}" marker-end="url(#ar)"/>`;
+  const B = x => `<tspan font-weight="600">${x}</tspan>`;
+  let s = `<defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--muted)"/></marker></defs>`;
+  s += `<line class="resid" x1="44" y1="26" x2="44" y2="780"/>`;
+  s += `<text x="16" y="16" font-size="11" class="t2">${L === 0 ? 'from token_embd (3,584 per token)' : `from layer ${L - 1}`}</text>`;
+  s += `<text x="16" y="800" font-size="11" class="t2">${L === NL - 1 ? 'to output_norm → output head' : `to layer ${L + 1}`}</text>`;
+  s += `<text x="0" y="0" font-size="10" class="t2" transform="translate(30 590) rotate(-90)">residual stream · 3,584</text>`;
+  s += W(44, 83, 88, 83) + W(185, 106, 185, 138) + W(332, 106, 332, 138) + W(427, 106, 427, 138);
+  s += W(185, 240, 185, 270) + W(332, 240, 332, 270) + W(427, 240, 427, 270) + W(280, 326, 280, 352);
+  s += `<path class="wire" d="M90 381 L58 381" marker-end="url(#ar)"/><circle class="addc" cx="44" cy="381" r="11"/><text x="44" y="386" text-anchor="middle" font-size="15">+</text>`;
+  s += W(44, 477, 88, 477) + W(182, 500, 182, 532) + W(377, 500, 377, 532) + W(182, 602, 182, 628) + W(377, 602, 377, 628) + W(280, 676, 280, 702);
+  s += `<path class="wire" d="M90 731 L58 731" marker-end="url(#ar)"/><circle class="addc" cx="44" cy="731" r="11"/><text x="44" y="736" text-anchor="middle" font-size="15">+</text>`;
+  s += `<text x="480" y="52" text-anchor="end" font-size="10" class="t2">ATTENTION BLOCK</text><text x="480" y="446" text-anchor="end" font-size="10" class="t2">FEED-FORWARD BLOCK</text>`;
+  for (const n of NODES){
+    if (n.op){
+      s += `<g class="r-op"><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="5"/><text x="${n.x + 12}" y="${n.y + 21}" font-size="12">${n.t1}</text><text class="t2" x="${n.x + 12}" y="${n.y + 38}" font-size="10.5">${n.t2}</text></g>`;
+      continue;
+    }
+    const t = T[tname(n.k, L)]; const r = INFO[n.k].role; const sel = state.tensor === n.k;
+    const small = n.w < 100; const base = n.k.replace('.weight', '');
+    const st = statOf(n.k, L), rk = rankOf(n.k, L), ws = D.wstats[tname(n.k, L)];
+    let inner;
+    if (n.chip) inner = `<text x="${n.x + 8}" y="${n.y + 15}" font-size="10.5">${small ? 'max ' : '+ bias · max |b| '}${B(f2(st))}</text>`;
+    else if (t.dims.length === 1){ const p = n.k.split('.')[0]; inner = `<text x="${n.x + 12}" y="${n.y + 19}" font-size="12">${base}<tspan class="t2" font-size="10.5"> · RMSNorm · ${nf(t.dims[0])} gains · F32</tspan></text><text x="${n.x + 12}" y="${n.y + 35}" font-size="10.5">mean gain ${B(D.layers[L][p + '_mean'].toFixed(2))} · max gain ${B(D.layers[L][p + '_max'].toFixed(2))}</text>`; }
+    else if (small) inner = `<text x="${n.x + 8}" y="${n.y + 16}" font-size="11.5">${base}</text><text class="t2" x="${n.x + 8}" y="${n.y + 30}" font-size="9.5">${shapeStr(t, true)}</text><text class="t2" x="${n.x + 8}" y="${n.y + 43}" font-size="9.5">${t.type}</text><text x="${n.x + 8}" y="${n.y + 57}" font-size="10">σ ${B(f4(ws.std))}</text>`;
+    else if (n.h > 60) inner = `<text x="${n.x + 12}" y="${n.y + 19}" font-size="12">${base}</text><text class="t2" x="${n.x + 12}" y="${n.y + 35}" font-size="10.5">${shapeStr(t, true)} · ${t.type}</text><text x="${n.x + 12}" y="${n.y + 53}" font-size="10.5">σ ${B(f4(ws.std))} · max ${B(ws.maxabs.toFixed(3))}</text>`;
+    else inner = `<text x="${n.x + 12}" y="${n.y + 19}" font-size="12">${base}<tspan class="t2" font-size="10.5"> · ${shapeStr(t)} · ${t.type} · ${big(prod(t.dims))}</tspan></text><text x="${n.x + 12}" y="${n.y + 38}" font-size="10.5">σ ${B(f4(ws.std))} · max |w| ${B(ws.maxabs.toFixed(3))} · mean |w| ${B(f4(ws.meanabs))}</text>`;
+    const bw = n.w - 16;
+    inner += `<rect class="trk" x="${n.x + 8}" y="${n.y + n.h - 6}" width="${bw}" height="3" rx="1.5"/><rect class="lvl" x="${n.x + 8}" y="${n.y + n.h - 6}" width="${Math.max(3, bw * rk.rel).toFixed(1)}" height="3" rx="1.5"/>`;
+    const tipTxt = `${INFO[n.k].short}, layer ${L}: ${STATNAME(n.k)} ${n.k.endsWith('norm.weight') || BIASK[n.k] ? f2(st) : f4(st)}, ${ord(rk.rank)} largest of ${NL} layers`;
+    s += `<g class="node r-${r}${sel ? ' sel' : ''}" data-k="${n.k}" tabindex="0" role="button" aria-label="${esc(tipTxt)}"><title>${esc(tipTxt)}</title><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="5"/>${inner}</g>`;
+  }
+  svg.innerHTML = s;
+}
+const openLayer = el => { state.layer = +el.dataset.l; state.tensor = 'attn_q.weight'; renderAnatomy(); };
+$('#diagram').addEventListener('click', e => { const ls = e.target.closest('.lstripe'); if (ls) return openLayer(ls); const g = e.target.closest('.node'); if (g){ state.tensor = g.dataset.k; renderAnatomy(); } });
+$('#diagram').addEventListener('keydown', e => { const ls = e.target.closest('.lstripe'); if (ls && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); return openLayer(ls); } const g = e.target.closest('.node'); if (g && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); state.tensor = g.dataset.k; renderAnatomy(); $(`.node[data-k="${g.dataset.k}"]`)?.focus(); } });
+
+/* ---------- detail ---------- */
+function miniBars(vals, colorFn, labelFn){
+  const w = 360, h = 70, bw = w / vals.length, m = Math.max(...vals);
+  return `<svg viewBox="0 0 ${w} ${h + 14}" style="width:100%;height:auto">${vals.map((v, i) => { const bh = Math.max(1, v / m * h); return `<rect x="${i * bw + 1}" y="${h - bh}" width="${bw - 2}" height="${bh}" fill="${colorFn(i)}"><title>${labelFn(i, v)}</title></rect>`; }).join('')}<text x="0" y="${h + 12}" font-size="10" fill="var(--muted)" font-family="var(--f-mono)">head 0</text><text x="${w}" y="${h + 12}" font-size="10" text-anchor="end" fill="var(--muted)" font-family="var(--f-mono)">${vals.length - 1}</text></svg>`;
+}
+function patchHTML(name){
+  const P = D.patches[name]; const flat = P.flat(); const s = pct(flat, .98);
+  const mx = Math.max(...flat.map(Math.abs));
+  return `<div class="hm" data-hm="${name}" style="grid-template-columns:repeat(${P[0].length},1fr)">${flat.map(v => `<div style="background:${divCell(v, s)}" data-v="${v}"></div>`).join('')}</div>
+  <p class="cap">Real dequantized values: the top-left 40 × 40 corner of this matrix. Rows are output units 0–39 and columns are inputs 0–39. Red is positive, blue is negative. Largest |w| shown: ${(mx / 1000).toFixed(3)}.</p>`;
+}
+function renderDetail(){
+  const k = state.tensor, L = state.layer, name = tname(k), t = T[name], I = INFO[k];
+  const n = prod(t.dims);
+  const pack = t.type === 'F32' ? 'Plain 32-bit floats, 4 bytes each.'
+    : t.type === 'Q4_K' ? 'Blocks of 256 weights packed into 144 bytes, sharing a scale and a minimum (about 4.5 bits per weight).'
+    : 'Blocks of 256 weights packed into 210 bytes, with 16 sub-scales (about 6.6 bits per weight).';
+  const rows = t.dims.length === 2 ? Math.ceil(t.dims[0] / 256) : 0;
+  let h = `<div style="display:grid;gap:6px"><span><span class="role ${I.role}">${I.role === 'norm' ? 'Norm / bias' : I.role === 'attn' ? 'Attention' : I.role === 'ffn' ? 'Feed-forward' : 'Embedding'}</span></span><h2>${I.short}</h2><div class="dname">${name}</div></div>
+  <p>${I.what}</p>
+  <dl class="kv"><dt>Shape</dt><dd class="mono">${t.dims.length === 2 ? (k === 'token_embd.weight' ? `${nf(t.dims[1])} rows × ${nf(t.dims[0])}` : `${nf(t.dims[0])} in → ${nf(t.dims[1])} out`) : `${nf(t.dims[0])}`}</dd>
+  <dt>Parameters</dt><dd>${nf(n)} <span class="muted">(${(n / 7615616512 * 100).toPrecision(2)}% of model)</span></dd>
+  <dt>Stored as</dt><dd>${t.type}${rows ? ` <span class="muted">· ${rows} blocks per row</span>` : ''}</dd>
+  <dt>Size on disk</dt><dd>${sz(t.bytes)}</dd><dt>Packing</dt><dd>${pack}</dd></dl>`;
+
+  // values specific to this tensor and layer
+  let v = '';
+  const l = D.layers[L];
+  if (k === 'attn_norm.weight' || k === 'ffn_norm.weight'){
+    const p = k.split('.')[0];
+    v = `<dl class="kv"><dt>Mean gain</dt><dd>${l[p + '_mean'].toFixed(3)} <span class="muted">· ${ord(rankOf(k, L).rank)} largest of ${NL} layers</span></dd><dt>Largest gain</dt><dd>${l[p + '_max'].toFixed(2)}</dd></dl><button class="btn" data-goto="profile" data-metric="${p}_mean">Compare all layers →</button>`;
+  } else if (k === 'attn_q.bias'){
+    v = `<p class="cap">Largest |bias| in each of the 28 query heads. Bars are coloured by the key/value group the head belongs to.</p>` +
+      miniBars(D.qhead[L], i => `color-mix(in srgb, var(--attn) ${[100, 60, 35, 80][Math.floor(i / 7)]}%, var(--surface))`, (i, v) => `head ${i} (kv group ${Math.floor(i / 7)}): ${v}`) +
+      `<dl class="kv"><dt>Max |value|</dt><dd>${l.q_bias_maxabs} <span class="muted">· ${ord(rankOf(k, L).rank)} largest of ${NL} layers</span></dd><dt>q/k values beyond ±10</dt><dd>${l.outliers} in this layer</dd></dl><button class="btn" data-goto="heads">See every layer's heads →</button>`;
+  } else if (k === 'attn_k.bias'){
+    v = `<p class="cap">Largest |bias| in each of the 4 key heads.</p>` + miniBars(D.khead[L], () => 'var(--bad)', (i, v) => `k head ${i}: ${v}`) +
+      `<dl class="kv"><dt>Max |value|</dt><dd>${l.k_bias_maxabs} <span class="muted">· ${ord(rankOf(k, L).rank)} largest of ${NL} layers</span></dd></dl><button class="btn" data-goto="profile" data-metric="k_bias_maxabs">Compare all layers →</button>`;
+  } else if (k === 'attn_v.bias'){
+    v = `<dl class="kv"><dt>Max |value|</dt><dd>${l.v_bias_maxabs} <span class="muted">· ${ord(rankOf(k, L).rank)} largest of ${NL} layers</span></dd></dl><button class="btn" data-goto="profile" data-metric="v_bias_maxabs">Compare all layers →</button>`;
+  } else if (D.wstats[name]){
+    const ws = D.wstats[name];
+    v = `<dl class="kv"><dt>Spread (σ)</dt><dd>${f4(ws.std)}${GLOBAL.has(k) ? '' : ` <span class="muted">· ${ord(rankOf(k, L).rank)} largest of ${NL} layers</span>`}</dd><dt>Mean |w|</dt><dd>${f4(ws.meanabs)}</dd><dt>Largest |w| seen</dt><dd>${ws.maxabs.toFixed(3)}</dd><dt>Mean</dt><dd>${ws.mean.toFixed(5)}</dd></dl><p class="cap">Measured on ${nf(ws.n)} weights sampled across the whole matrix.</p>`
+      + (D.patches[name] ? patchHTML(name) : '')
+      + (k === 'token_embd.weight' ? `<button class="btn" data-goto="tokens">See real token rows →</button>` : '');
+  }
+  if (v) h += `<div class="box"><h4>Values in this tensor</h4>${v}</div>`;
+
+  $('#detail').innerHTML = h;
+}
+$('#detail').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.layer){ state.layer = +b.dataset.layer; renderAnatomy(); }
+  if (b.dataset.goto){ if (b.dataset.metric) state.metric = b.dataset.metric; location.hash = b.dataset.goto; }
+});
+document.addEventListener('mousemove', e => {
+  const c = e.target.closest('.hm div[data-v]'); if (!c) { if (e.target.closest('.hm')) return; return; }
+  const i = [...c.parentNode.children].indexOf(c); const cols = getComputedStyle(c.parentNode).gridTemplateColumns.split(' ').length;
+  const tok = c.parentNode.dataset.tok;
+  showTip(e, tok ? `${esc(tok)} · dim ${i}: ${(c.dataset.v / 1000).toFixed(4)}` : `row ${Math.floor(i / cols)}, col ${i % cols}: ${(c.dataset.v / 1000).toFixed(4)}`);
+});
+document.addEventListener('mouseout', e => { if (e.target.closest('.hm')) hideTip(); });
+
+function setCap(overview){
+  const c = $('#dgcap'); if (!c.dataset.orig) c.dataset.orig = c.textContent;
+  c.textContent = overview ? 'The whole model, top to bottom. The highlighted part is the one you picked; numbers are its real values. Click a layer stripe to open that layer, or another part to inspect it.' : c.dataset.orig;
+}
+const PART_TITLE = {'token_embd.weight': 'Embedding · before the first layer', 'output_norm.weight': 'Final norm · after the last layer', 'output.weight': 'Output head · the last step'};
+function renderOverview(){
+  const svg = $('#diagram'); svg.setAttribute('viewBox', '0 0 500 910'); setCap(true);
+  const B = x => `<tspan font-weight="600">${x}</tspan>`;
+  const W = (x1, y1, x2, y2) => `<path class="wire" d="M${x1} ${y1} L${x2} ${y2}" marker-end="url(#ar)"/>`;
+  const e = T['token_embd.weight'], o = T['output.weight'], ew = D.wstats['token_embd.weight'], ow = D.wstats['output.weight'];
+  const node = (k, x, y, w, h, role, l1, l2) => `<g class="node r-${role}${state.tensor === k ? ' sel' : ''}" data-k="${k}" tabindex="0" role="button" aria-label="${esc(INFO[k].short)}"><title>${esc(INFO[k].short)}</title><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5"/><text x="${x + 12}" y="${y + 21}" font-size="12">${l1}</text><text x="${x + 12}" y="${y + 40}" font-size="10.5">${l2}</text></g>`;
+  let s = `<defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--muted)"/></marker></defs>`;
+  s += `<line class="resid" x1="44" y1="134" x2="44" y2="742"/>`;
+  s += `<text x="0" y="0" font-size="10" class="t2" transform="translate(30 520) rotate(-90)">residual stream · 3,584 per token</text>`;
+  s += `<g class="r-op"><rect x="90" y="20" width="380" height="46" rx="5"/><text x="102" y="40" font-size="12">input text → token ids</text><text class="t2" x="102" y="57" font-size="10.5">each token id picks one row of the embedding table</text></g>`;
+  s += W(280, 66, 280, 98);
+  s += node('token_embd.weight', 90, 100, 380, 58, 'embed', `token_embd<tspan class="t2" font-size="10.5"> · lookup table · ${e.type} · ${big(prod(e.dims))}</tspan>`, `${nf(e.dims[1])} rows × ${nf(e.dims[0])} · σ ${B(f4(ew.std))} · max |w| ${B(ew.maxabs.toFixed(3))}`);
+  s += W(280, 158, 280, 186);
+  s += `<text x="90" y="200" font-size="10" class="t2">28 LAYERS · CLICK ONE TO OPEN IT</text>`;
+  for (let i = 0; i < NL; i++){
+    const y = 208 + i * 16;
+    s += `<g class="lstripe" data-l="${i}" tabindex="0" role="button" aria-label="Open layer ${i}"><title>Layer ${i} (${ord(i + 1)} of ${NL})</title><rect x="90" y="${y}" width="380" height="14" rx="2"/><text x="98" y="${y + 10.5}" font-size="9.5">blk.${i}</text><text class="t2" x="462" y="${y + 10.5}" font-size="9.5" text-anchor="end">${ord(i + 1)} of ${NL}</text></g>`;
+  }
+  s += W(280, 656, 280, 684);
+  s += node('output_norm.weight', 90, 686, 380, 56, 'norm', `output_norm<tspan class="t2" font-size="10.5"> · RMSNorm · 3,584 gains · F32</tspan>`, `mean gain ${B('3.84')} · max gain ${B('10.75')}`);
+  s += W(280, 742, 280, 770);
+  s += node('output.weight', 90, 772, 380, 58, 'embed', `output<tspan class="t2" font-size="10.5"> · ${shapeStr(o)} · ${o.type} · ${big(prod(o.dims))}</tspan>`, `one score per token · σ ${B(f4(ow.std))} · max |w| ${B(ow.maxabs.toFixed(3))}`);
+  s += W(280, 830, 280, 856);
+  s += `<g class="r-op"><rect x="90" y="858" width="380" height="46" rx="5"/><text x="102" y="878" font-size="12">152,064 scores → softmax → next token</text><text class="t2" x="102" y="895" font-size="10.5">the highest-probability token is written, then the loop repeats</text></g>`;
+  svg.innerHTML = s;
+}
+function renderAnatomy(){
+  const L = state.layer;
+  $('#lt').textContent = GLOBAL.has(state.tensor) ? PART_TITLE[state.tensor] : `Layer ${L} · ${ord(L + 1)} of ${NL}`;
+  $('#prev').disabled = L === 0; $('#next').disabled = L === NL - 1;
+  renderStack(); if (GLOBAL.has(state.tensor)) renderOverview(); else renderDiagram(); renderDetail();
+}
+$('#prev').onclick = () => { if (state.layer > 0){ state.layer--; if (GLOBAL.has(state.tensor)) state.tensor = 'attn_q.weight'; renderAnatomy(); } };
+$('#next').onclick = () => { if (state.layer < NL - 1){ state.layer++; if (GLOBAL.has(state.tensor)) state.tensor = 'attn_q.weight'; renderAnatomy(); } };
+
+/* ---------- budget ---------- */
+const CAT = t => t.name === 'token_embd.weight' ? 'embed' : t.name === 'output.weight' ? 'out' : /attn_(q|k|v|output)\.weight$/.test(t.name) ? 'attn' : /ffn_(gate|up|down)/.test(t.name) ? 'ffn' : 'nb';
+const CATS = {embed:['Input embedding', '--embed', 'token_embd'], out:['Output head', '--embed', 'output'], attn:['Attention matrices', '--attn', 'q, k, v, output × 28 layers'], ffn:['Feed-forward matrices', '--ffn', 'gate, up, down × 28 layers'], nb:['Norms & biases', '--norm', '141 small F32 tensors']};
+function barAndTable(barSel, tblSel, rows, total, unitFmt, cols){
+  const bar = $(barSel), tbl = $(tblSel);
+  bar.innerHTML = rows.map((r, i) => `<button style="flex:${r.v};background:${r.c}" data-i="${i}" aria-label="${esc(r.label)}" aria-pressed="false"></button>`).join('');
+  tbl.innerHTML = `<tr><th>${cols[0]}</th><th class="r">${cols[1]}</th><th class="r">Share</th>${cols[2] ? `<th>${cols[2]}</th>` : ''}</tr>` +
+    rows.map((r, i) => `<tr data-i="${i}"><td><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${r.c};margin-right:8px"></i>${r.label}</td><td class="r">${unitFmt(r.v)}</td><td class="r">${(r.v / total * 100).toFixed(r.v / total < .001 ? 3 : 1)}%</td>${cols[2] ? `<td class="muted">${r.note}</td>` : ''}</tr>`).join('');
+  const hl = i => { bar.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.i == i)); tbl.querySelectorAll('tr[data-i]').forEach(tr => tr.classList.toggle('hl', tr.dataset.i == i)); };
+  bar.addEventListener('click', e => { const b = e.target.closest('button'); if (b) hl(b.dataset.i); });
+  bar.addEventListener('mousemove', e => { const b = e.target.closest('button'); if (!b) return; const r = rows[b.dataset.i]; showTip(e, `${esc(r.label)}<br>${unitFmt(r.v)} · ${(r.v / total * 100).toFixed(2)}%`); });
+  bar.addEventListener('mouseleave', hideTip);
+  tbl.addEventListener('click', e => { const tr = e.target.closest('tr[data-i]'); if (tr) hl(tr.dataset.i); });
+}
+function renderBudget(){
+  const sum = {}; let total = 0;
+  for (const t of D.tensors){ const c = CAT(t); const n = prod(t.dims); sum[c] = (sum[c] || 0) + n; total += n; }
+  $('#ptotal').textContent = nf(total);
+  const rows = ['ffn', 'attn', 'embed', 'out', 'nb'].map(c => ({label: CATS[c][0], v: sum[c], c: `var(${CATS[c][1]})`, note: CATS[c][2]}));
+  rows[3].c = 'color-mix(in srgb, var(--embed) 55%, var(--surface))';
+  barAndTable('#bar-all', '#tbl-all', rows, total, nf, ['Part', 'Parameters', 'What']);
+  const lk = [['ffn_gate.weight', '--ffn', 100], ['ffn_up.weight', '--ffn', 75], ['ffn_down.weight', '--ffn', 50], ['attn_q.weight', '--attn', 100], ['attn_output.weight', '--attn', 70], ['attn_k.weight', '--attn', 45], ['attn_v.weight', '--attn', 30], ['biases (q, k, v)', '--norm', 100], ['norms (attn, ffn)', '--norm', 60]];
+  const lrows = lk.map(([k, c, p]) => {
+    let v; if (k.startsWith('biases')) v = 3584 + 512 + 512; else if (k.startsWith('norms')) v = 7168; else v = prod(T['blk.0.' + k].dims);
+    return {label: k.replace('.weight', ''), v, c: `color-mix(in srgb, var(${c}) ${p}%, var(--surface))`};
+  });
+  const ltot = lrows.reduce((a, r) => a + r.v, 0);
+  barAndTable('#bar-layer', '#tbl-layer', lrows, ltot, nf, ['Tensor', 'Parameters']);
+  const by = {}; for (const t of D.tensors) by[t.type] = (by[t.type] || 0) + t.bytes;
+  const drows = [['Q4_K', 'var(--attn)'], ['Q6_K', 'color-mix(in srgb, var(--attn) 50%, var(--surface))'], ['F32', 'var(--norm)']].map(([k, c]) => ({label: `${k} · ${D.tensors.filter(t => t.type === k).length} tensors`, v: by[k], c}));
+  barAndTable('#bar-disk', '#tbl-disk', drows, drows.reduce((a, r) => a + r.v, 0), sz, ['Format', 'Bytes']);
+}
+
+/* ---------- heads ---------- */
+function renderHeads(){
+  const qmax = Math.max(...D.qhead.flat()), kmax = Math.max(...D.khead.flat());
+  const el = $('#heads');
+  el.style.gridTemplateColumns = `34px repeat(28, minmax(10px, 1fr)) 10px repeat(4, minmax(10px, 1fr))`;
+  let h = `<div></div>` + [0, 1, 2, 3].map(g => `<div class="gh" style="grid-column:span 7">kv group ${g}</div>`).join('') + `<div></div><div class="gh" style="grid-column:span 4">k bias</div>`;
+  h += `<div></div>` + ALL.map(i => `<div class="ch">${i % 7 === 0 ? i : ''}</div>`).join('') + `<div></div>` + [0, 1, 2, 3].map(i => `<div class="ch">${i}</div>`).join('');
+  for (let L = 0; L < NL; L++){
+    h += `<div class="rl" data-row="${L}">L${L}</div>`;
+    for (let i = 0; i < 28; i++){
+      const v = D.qhead[L][i]; const p = Math.round(Math.log1p(v) / Math.log1p(qmax) * 100);
+      const g = Math.floor(i / 7); const hl = state.group && state.group[0] === L && state.group[1] === g;
+      h += `<div class="c${hl ? ' hl' : ''}" data-l="${L}" data-h="${i}" style="background:color-mix(in srgb, var(--attn) ${p}%, var(--surface))"></div>`;
+    }
+    h += `<div></div>`;
+    for (let g = 0; g < 4; g++){
+      const v = D.khead[L][g]; const p = Math.round(Math.log1p(v) / Math.log1p(kmax) * 100);
+      const hl = state.group && state.group[0] === L && state.group[1] === g;
+      h += `<div class="c${hl ? ' hl' : ''}" data-l="${L}" data-k="${g}" style="background:color-mix(in srgb, var(--bad) ${p}%, var(--surface))"></div>`;
+    }
+  }
+  el.innerHTML = h;
+  const info = $('#headinfo');
+  if (!state.group){ info.innerHTML = `<h3>Click any cell</h3><p class="muted" style="margin-top:4px">Layer 0 and layer 27 carry the biggest key biases (171 and 414). Layers 18–19 carry the biggest query biases (about 55).</p>`; return; }
+  const [L, g] = state.group;
+  info.innerHTML = `<h3>Layer ${L}, key/value group ${g}</h3><p style="margin-top:4px">Query heads ${g * 7}–${g * 7 + 6} all compare against key head ${g} and copy from value head ${g}. Their query biases peak at ${Math.max(...D.qhead[L].slice(g * 7, g * 7 + 7))}, and key head ${g}'s bias peaks at ${D.khead[L][g]}.</p><div class="links" style="margin-top:10px"><button class="btn" id="openL">Open layer ${L} in Layer anatomy →</button></div>`;
+  $('#openL').onclick = () => { state.layer = L; state.tensor = 'attn_q.bias'; location.hash = 'anatomy'; };
+}
+$('#heads').addEventListener('click', e => { const c = e.target.closest('.c'); if (!c) return; state.group = [+c.dataset.l, c.dataset.k != null ? +c.dataset.k : Math.floor(c.dataset.h / 7)]; renderHeads(); });
+$('#heads').addEventListener('mousemove', e => { const c = e.target.closest('.c'); if (!c) return hideTip(); const L = +c.dataset.l;
+  if (c.dataset.k != null) showTip(e, `blk.${L} · key head ${c.dataset.k}<br>max |k bias| ${D.khead[L][c.dataset.k]}`);
+  else showTip(e, `blk.${L} · query head ${c.dataset.h} (kv group ${Math.floor(c.dataset.h / 7)})<br>max |q bias| ${D.qhead[L][c.dataset.h]}`); });
+$('#heads').addEventListener('mouseleave', hideTip);
+
+/* ---------- profile ---------- */
+const METRICS = {
+  k_bias_maxabs: ['Max |key bias|', 'Largest absolute key-bias value in each layer, on a log scale. Layers 0 and 27 dwarf the rest.', true],
+  q_bias_maxabs: ['Max |query bias|', 'Largest absolute query-bias value in each layer.', false],
+  outliers: ['q/k biases beyond ±10', 'How many query and key bias values exceed ±10 in each layer (808 across the model). Layer 0 (91) and layer 27 (77) hold the most.', false],
+  v_bias_maxabs: ['Max |value bias|', 'Largest absolute value-bias value. It is small everywhere until layers 23–27.', false],
+  attn_norm_mean: ['attn_norm mean gain', 'Average pre-attention gain. It is low in early layers and climbs to about 1 by the middle of the model.', false],
+  ffn_norm_mean: ['ffn_norm mean gain', 'Average pre-FFN gain. It rises steadily toward the last layers, reaching 2.13 in layer 27.', false],
+  ffn_norm_max: ['ffn_norm max gain', 'Largest single pre-FFN gain. Spikes in layers 3, 5 and 27.', false],
+};
+function renderProfile(){
+  $('#metrics').innerHTML = Object.entries(METRICS).map(([k, m]) => `<button class="btn" data-m="${k}" aria-pressed="${state.metric === k}">${m[0]}</button>`).join('');
+  const [label, desc, log] = METRICS[state.metric]; $('#mdesc').textContent = desc;
+  const vals = D.layers.map(l => l[state.metric]);
+  const W = 760, H = 270, ml = 52, mr = 8, mt = 12, mb = 30, cw = (W - ml - mr) / NL, ph = H - mt - mb;
+  let lo = 0, hi = Math.max(...vals), ticks;
+  const nice = x => { const p = Math.pow(10, Math.floor(Math.log10(x))); const f = x / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; };
+  let y;
+  if (log){ lo = Math.pow(10, Math.floor(Math.log10(Math.min(...vals)))); hi = Math.pow(10, Math.ceil(Math.log10(hi))); ticks = []; for (let t = lo; t <= hi * 1.001; t *= 10) ticks.push(t); y = v => mt + ph - (Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo)) * ph; }
+  else { const step = nice(hi / 4); hi = Math.ceil(hi / step) * step; ticks = []; for (let t = 0; t <= hi + 1e-9; t += step) ticks.push(+t.toFixed(6)); y = v => mt + ph - v / hi * ph; }
+  let s = ticks.map(t => `<line class="gl" x1="${ml}" x2="${W - mr}" y1="${y(t)}" y2="${y(t)}"/><text x="${ml - 6}" y="${y(t) + 4}" text-anchor="end">${t >= 1000 ? t / 1000 + 'k' : +t.toPrecision(3)}</text>`).join('');
+  vals.forEach((v, i) => { const x = ml + i * cw + 2, top = y(Math.max(v, log ? lo : 0)); s += `<rect class="bar" data-l="${i}" x="${x}" y="${top}" width="${cw - 4}" height="${Math.max(1, mt + ph - top)}" rx="1.5"><title>Layer ${i}: ${+v.toFixed(3)}</title></rect>`; if (i % 3 === 0 || i === NL - 1) s += `<text x="${x + (cw - 4) / 2}" y="${H - 12}" text-anchor="middle">${i}</text>`; });
+  s += `<text x="${ml}" y="${H - 1}">layer →</text>`;
+  $('#chart').innerHTML = s;
+  // lanes
+  const lanes = $('#lanes'); lanes.style.gridTemplateColumns = `200px repeat(${NL}, minmax(14px,1fr))`;
+  let h = `<div></div>` + ALL.map(i => `<div class="lh">${i % 3 === 0 || i === NL - 1 ? i : ''}</div>`).join('');
+  for (const k of ['attn_v.weight', 'ffn_down.weight']){ h += `<div class="ll">${k.split('.')[0]} format</div>` + ALL.map(i => { const q6 = T[`blk.${i}.${k}`].type === 'Q6_K'; return `<div class="lc" style="background:${q6 ? 'var(--attn)' : 'color-mix(in srgb, var(--attn) 25%, var(--surface))'}" title="layer ${i}: ${q6 ? 'Q6_K' : 'Q4_K'}"></div>`; }).join(''); }
+  lanes.innerHTML = h;
+}
+$('#metrics').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ state.metric = b.dataset.m; renderProfile(); } });
+$('#chart').addEventListener('click', e => { const r = e.target.closest('.bar'); if (r){ state.layer = +r.dataset.l; if (GLOBAL.has(state.tensor)) state.tensor = 'attn_q.weight'; location.hash = 'anatomy'; } });
+
+/* ---------- tokens ---------- */
+function renderTokens(){
+  const s = pct(D.emb.flatMap(e => e.row), .98);
+  $('#tokrows').innerHTML = `<div class="trow"><span class="cap">token · row id</span><span class="cap">dims 0 → 63</span></div>` + D.emb.map(e => `<div class="trow"><span class="tok">${esc(e.token)}<small>${nf(e.id)}</small></span><div class="hm wide" data-tok="${esc(e.token)}" style="grid-template-columns:repeat(64,1fr)">${e.row.map(v => `<div style="background:${divCell(v, s)}" data-v="${v}"></div>`).join('')}</div></div>`).join('');
+  const opts = D.emb.map((e, i) => `<option value="${i}">${esc(e.token)}</option>`).join('');
+  $('#ta').innerHTML = opts; $('#tb').innerHTML = opts;
+  $('#ta').value = D.emb.findIndex(e => e.token === '␣Paris'); $('#tb').value = D.emb.findIndex(e => e.token === '␣London');
+  sim();
+}
+function sim(){
+  const a = D.emb[$('#ta').value].row, b = D.emb[$('#tb').value].row;
+  let d = 0, na = 0, nb = 0; a.forEach((x, i) => { d += x * b[i]; na += x * x; nb += b[i] * b[i]; });
+  $('#simv').textContent = (d / Math.sqrt(na * nb)).toFixed(2);
+}
+$('#ta').onchange = sim; $('#tb').onchange = sim;
+
+/* ---------- learn: guided 3D tour of one token ---------- */
+const LRN = /*__LEARN__*/null;
+const TX = [-4, -2, 0, 2, 4], GX = 6, FOLLOW = 4;
+const LY = i => 2 + i * 0.9;
+const TOP = LY(NL - 1) + 0.4;
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const tokTxt = s => s.replace(/^ /, '␣').replace(/\n/g, '⏎');
+const pctf = p => (p * 100).toFixed(p < .1 ? 1 : 0) + '%';
+const P0 = LRN.steps[0].top, P1 = LRN.steps[1].top;
+const TK = LRN.tokens;
+
+function probTable(top){
+  const m = top[0][1];
+  return `<div class="ptab">${top.map(([t, p], i) => `<div class="prow${i === 0 ? ' top' : ''}"><span class="mono">${esc(tokTxt(t))}</span><span class="pbar"><i style="width:${(p / m * 100).toFixed(1)}%"></i></span><span class="num">${pctf(p)}</span></div>`).join('')}</div>`;
+}
+
+const STEPS3 = [
+  {title: 'The whole journey', cam: [1.5, 12.5, 0, 44, .8, 1.25], show: {},
+   body: `<p>The model reads <b>"${esc(LRN.prompt)}"</b> and has to choose the next token. This scene follows the last token, <b>"␣is"</b>, from the bottom to the top.</p><p>At the bottom is the embedding table. The blue and orange plates are the 28 layers, and the blocks on the right are each layer's 28 attention heads. At the top, the model scores every possible next token.</p><p class="cap">Drag to turn the scene. Shift-drag, right-drag or the arrow buttons move it, and + and − zoom. Press Next to go step by step, or Play to watch the whole tour.</p>`,
+   real: `Real: the layout follows the model file exactly, with 5 prompt tokens, 28 layers, 28 heads per layer and 152,064 possible outputs.`},
+  {title: 'Text becomes tokens', cam: [0, .6, 0, 15, .15, 1.32], show: {},
+   body: `<p>The model never sees letters. A tokenizer splits text into pieces from a fixed list of <b>152,064 tokens</b>. This prompt becomes <b>5 tokens</b>:</p><p class="mono toks">${TK.slice(0, 5).map(t => `<span>${esc(tokTxt(t.text))}<small>${nf(t.id)}</small></span>`).join('')}</p><p>Common words are one token each. The leading space (␣) is part of the token, so "␣capital" and "capital" are different tokens. From here on, each token is only a number.</p>`,
+   real: `Real: these are the token ids Qwen2.5 uses.`},
+  {title: 'Each token looks up its row', cam: [2, -.4, 0, 14, .55, 1.08], show: {rows: 1, vec: 1}, packet: 'base',
+   body: `<p>Token 374 ("␣is") selects <b>row 374</b> of the embedding table, <span class="mono">token_embd</span>. That row is <b>3,584 numbers</b>: the token's starting vector.</p><p>The coloured grid beside the column shows all 3,584 numbers as 64 × 56 squares, with red for positive values and blue for negative. Nothing is calculated here. It's a lookup, so "is" starts with the same numbers in every sentence.</p>`,
+   real: `Real: the grid shows the actual numbers in row 374 of the model file.`},
+  {title: 'Attention: look back at earlier tokens', cam: [1.5, LY(0) + .9, 0, 13, .5, 1.12], show: {arcs: 0}, packet: LY(0),
+   body: `<p>In each layer, the token first gathers information from the tokens before it.</p><ul><li>Its vector becomes <b>28 queries</b> ("what am I looking for?").</li><li>Every token provides <b>keys</b> ("what do I offer?") and <b>values</b> ("what do I pass on?"). Qwen has only 4 key/value heads, each shared by 7 query heads.</li><li>Comparing queries with keys decides how much to take from each earlier token. The arcs show this.</li></ul><p>A token can only look back, never ahead. This is how "is" picks up that the sentence is about the capital of France.</p>`,
+   real: `Illustrative: the arc thicknesses. This page can't run the model, so they show the idea, not measured values. The head blocks on the right are coloured by each head's real largest query bias.`},
+  {title: 'Feed-forward: work on what it gathered', cam: [1.5, LY(0) + .9, 0, 13, .5, 1.12], show: {ffn: 0}, packet: LY(0) + .4,
+   body: `<p>Next, each token works on its own. Its 3,584 numbers are <b>expanded to 18,944</b> (<span class="mono">ffn_gate</span> and <span class="mono">ffn_up</span>). A function called SiLU then lets each of those units switch on or off, and the result is <b>compressed back to 3,584</b> (<span class="mono">ffn_down</span>).</p><p>These three matrices hold 75% of all the model's parameters. Researchers think much of what a model "knows" is stored here.</p><p>The result is <b>added</b> to the token's vector instead of replacing it. That running vector is the purple column, called the residual stream.</p>`,
+   real: `Real: the sizes. Illustrative: the pulsing box only shows the expand-and-compress shape.`},
+  {title: 'Repeat in all 28 layers', cam: [1, 13, 0, 46, .9, 1.28], climb: true,
+   body: `<p>The same two steps, attention then feed-forward, repeat in all <b>28 layers</b>. Each layer has its own weights. All 5 tokens move up together, each in its own column, and each layer adds a small update to every token's vector.</p><p>Early layers tend to handle surface patterns such as spelling and grammar, and later layers handle more abstract meaning. By the top, the vector for "is" encodes something close to "a capital city comes next".</p><p>The plates are coloured by a real measurement from each layer. Change it under the scene, and hover a plate to see its value.</p>`,
+   real: `Real: the plate and head colours. Illustrative: the climbing dot and the arcs.`},
+  {title: 'Final norm and output head', cam: [1, TOP + 1.6, 0, 17, .6, 1.18], show: {top: 1}, packet: TOP + 1,
+   body: `<p>After layer 27, <span class="mono">output_norm</span> rescales the vector. Its gains average 3.84, much larger than inside the layers.</p><p>The <b>output head</b> then compares the vector with <b>152,064 rows</b>, one per token, and produces one score for each possible next token. These raw scores are called <b>logits</b>.</p>`,
+   real: `Real: the sizes and gain values come from the model file.`},
+  {title: 'Scores become probabilities', cam: [.8, TOP + 4.2, 0, 19, .25, 1.22], show: {top: 1, bars0: 1}, packet: TOP + 2,
+   body: `<p><b>Softmax</b> turns the 152,064 scores into probabilities that add up to 100%. Here are the model's top 8:</p>${probTable(P0)}<p>"␣Paris" wins clearly. The next candidates are blanks such as "␣__", because the prompt reads like a quiz question. At temperature 0 the model always takes the top token.</p>`,
+   real: `Real: these probabilities were captured by running qwen2.5:7b in Ollama on a Mac. Expect them to vary by about a percentage point between runs and machines.`},
+  {title: 'Add the word and go again', cam: [2, TOP + 3, 0, 36, .7, 1.28], show: {top: 1, bars1: 1, ghost: 1},
+   body: `<p>The chosen token, "␣Paris", is added to the end of the text, and the whole process runs again to choose the token after it. This time it's a close call:</p>${probTable(P1)}<p>All text a model writes is produced this way, one token at a time. Earlier tokens' keys and values are kept in a cache so they aren't recalculated. On the Mac used to capture this data, each new token took about <b>${LRN.ms_per_token} ms</b>.</p>`,
+   real: `Real: these probabilities were also captured from qwen2.5:7b.`},
+];
+
+const M3 = {
+  k_bias_maxabs: {label: 'Max |key bias|', on: 'attn', log: true, get: L => D.layers[L].k_bias_maxabs},
+  outliers: {label: 'Biases beyond ±10', on: 'attn', get: L => D.layers[L].outliers},
+  v_spread: {label: 'attn_v weight spread (σ)', on: 'attn', get: L => D.wstats[`blk.${L}.attn_v.weight`].std},
+  ffn_norm_mean: {label: 'ffn_norm mean gain', on: 'ffn', get: L => D.layers[L].ffn_norm_mean},
+  down_spread: {label: 'ffn_down weight spread (σ)', on: 'ffn', get: L => D.wstats[`blk.${L}.ffn_down.weight`].std},
+  none: {label: 'Nothing (job colours only)'},
+};
+
+let stepIdx = 0, L3 = null, playTimer = null;
+function renderStepPanel(){
+  const st = STEPS3[stepIdx];
+  $('#stepdots').innerHTML = STEPS3.map((s, i) => `<li><button data-s="${i}" aria-current="${i === stepIdx}" aria-label="Step ${i + 1}: ${esc(s.title)}" title="${esc(s.title)}">${i + 1}</button></li>`).join('');
+  $('#stepbody').innerHTML = `<p class="eyebrow">Step ${stepIdx + 1} of ${STEPS3.length}</p><h2>${st.title}</h2>${st.body}<p class="real">${st.real}</p>`;
+  $('#sprev').disabled = stepIdx === 0; $('#snext').disabled = stepIdx === STEPS3.length - 1;
+}
+function setStep(i){ stepIdx = Math.max(0, Math.min(STEPS3.length - 1, i)); renderStepPanel(); if (L3) applyStep(false); }
+function stopPlay(){ clearTimeout(playTimer); playTimer = null; $('#splay').textContent = 'Play tour'; }
+function playNext(){
+  if (stepIdx >= STEPS3.length - 1){ stopPlay(); return; }
+  setStep(stepIdx + 1);
+  playTimer = setTimeout(playNext, STEPS3[stepIdx].climb ? 11000 : 8000);
+}
+$('#stepdots').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ stopPlay(); setStep(+b.dataset.s); } });
+$('#sprev').onclick = () => { stopPlay(); setStep(stepIdx - 1); };
+$('#snext').onclick = () => { stopPlay(); setStep(stepIdx + 1); };
+$('#splay').onclick = () => {
+  if (playTimer){ stopPlay(); return; }
+  $('#splay').textContent = 'Pause tour';
+  if (stepIdx >= STEPS3.length - 1) setStep(0);
+  playTimer = setTimeout(playNext, STEPS3[stepIdx].climb ? 11000 : 6000);
+};
+
+function col(n){ return new THREE.Color(cssVar(n)); }
+function label3(text, {size = .42, color = '--ink', bold = false} = {}){
+  const c = document.createElement('canvas'), ctx = c.getContext('2d'), fs = 64;
+  const font = `${bold ? '600 ' : '400 '}${fs}px "IBM Plex Mono", ui-monospace, Menlo, monospace`;
+  ctx.font = font; c.width = Math.ceil(ctx.measureText(text).width) + 24; c.height = fs + 24;
+  ctx.font = font; ctx.fillStyle = cssVar(color); ctx.textBaseline = 'middle'; ctx.fillText(text, 12, c.height / 2);
+  const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map: tex, transparent: true, depthWrite: false}));
+  sp.scale.set(size * c.width / c.height, size, 1); return sp;
+}
+function vecTexture(row){
+  const W = 64, H = 56, data = new Uint8Array(W * H * 4), s = pct(row, .98);
+  const pos = col('--pos'), neg = col('--neg'), base = col('--surface');
+  for (let i = 0; i < W * H; i++){
+    const v = row[i] || 0, t = Math.max(-1, Math.min(1, v / s));
+    const c = base.clone().lerp(t >= 0 ? pos : neg, Math.abs(t)), y = H - 1 - Math.floor(i / W), k = (y * W + (i % W)) * 4;
+    data[k] = c.r * 255; data[k + 1] = c.g * 255; data[k + 2] = c.b * 255; data[k + 3] = 255;
+  }
+  const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat); tex.magFilter = THREE.NearestFilter; tex.needsUpdate = true; return tex;
+}
+function pseudo(i){ const x = Math.sin(i * 12.9898 + 4.1414) * 43758.5453; return x - Math.floor(x); }
+function attnWeights(L){ const w = TX.map((_, j) => (j === 0 ? 1.6 : .25) + pseudo(L * 7 + j)); const s = w.reduce((a, b) => a + b); return w.map(x => x / s); }
+
+function buildScene(){
+  if (L3.scene) L3.scene.traverse(o => { o.geometry?.dispose?.(); const m = o.material; if (m){ m.map?.dispose?.(); m.dispose?.(); } });
+  const S = new THREE.Scene(), O = {};
+  S.background = col('--surface');
+  S.add(new THREE.AmbientLight(0xffffff, .78));
+  const dl = new THREE.DirectionalLight(0xffffff, .5); dl.position.set(8, 30, 14); S.add(dl);
+  const mat = (c, o = 1) => new THREE.MeshLambertMaterial({color: c, transparent: o < 1, opacity: o, depthWrite: o >= 1});
+  const add = (o, x, y, z, parent = S) => { o.position.set(x, y, z); parent.add(o); return o; };
+
+  // embedding table and the rows the 5 tokens select
+  add(new THREE.Mesh(new THREE.BoxGeometry(11, .5, 3), mat(col('--embed'), .16)), 0, -2.2, 0);
+  add(label3('token_embd · 152,064 rows × 3,584', {size: .4, color: '--muted'}), 0, -2.95, 1.9);
+  O.rows = []; O.rowLines = [];
+  TK.slice(0, 5).forEach((t, j) => {
+    const z = -1.4 + (t.id / 152064) * 2.8;
+    O.rows.push(add(new THREE.Mesh(new THREE.BoxGeometry(11.04, .52, .07), mat(col('--embed'), .95)), 0, -2.2, z));
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(TX[j], -1.94, z), new THREE.Vector3(TX[j], .15, 0)]);
+    O.rowLines.push(add(new THREE.Line(g, new THREE.LineBasicMaterial({color: col('--embed')})), 0, 0, 0));
+  });
+  // token labels and residual-stream columns
+  const colH = TOP + .6 - 1;
+  TK.slice(0, 5).forEach((t, j) => {
+    add(label3(`${tokTxt(t.text)}  #${t.id}`, {size: .4, color: j === FOLLOW ? '--ink' : '--muted', bold: j === FOLLOW}), TX[j], .5, 0);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, colH, 8), mat(col('--embed'), j === FOLLOW ? .75 : .3)), TX[j], 1 + colH / 2, 0);
+  });
+  // layer plates
+  O.attn = []; O.ffn = [];
+  for (let i = 0; i < NL; i++){
+    const a = add(new THREE.Mesh(new THREE.BoxGeometry(12.4, .07, 2.2), mat(col('--attn'), .2)), 1, LY(i), 0); a.userData = {kind: 'attn', L: i}; O.attn.push(a);
+    const f = add(new THREE.Mesh(new THREE.BoxGeometry(12.4, .07, 2.2), mat(col('--ffn'), .2)), 1, LY(i) + .4, 0); f.userData = {kind: 'ffn', L: i}; O.ffn.push(f);
+    if (i % 3 === 0 || i === NL - 1) add(label3(`layer ${i}`, {size: .36, color: '--muted'}), 10.7, LY(i) + .2, 0);
+  }
+  add(label3('attention', {size: .36, color: '--attn'}), -6.6, LY(0), 0);
+  add(label3('feed-forward', {size: .36, color: '--ffn'}), -6.9, LY(0) + .45, 0);
+  // heads: 28 per layer, 7 per k/v group, coloured by real max |q bias|
+  const qmax = Math.max(...D.qhead.flat()), cS = col('--surface'), cA = col('--attn'), m4 = new THREE.Matrix4();
+  const hm = new THREE.InstancedMesh(new THREE.BoxGeometry(.18, .18, .18), new THREE.MeshLambertMaterial({color: 0xffffff}), NL * 28);
+  let n = 0;
+  for (let i = 0; i < NL; i++) for (let h = 0; h < 28; h++){
+    const g = Math.floor(h / 7), c = h % 7;
+    m4.makeTranslation(7.9 + c * .24, LY(i) + .1, -.36 + g * .24); hm.setMatrixAt(n, m4);
+    hm.setColorAt(n, cS.clone().lerp(cA, .08 + .92 * Math.log1p(D.qhead[i][h]) / Math.log1p(qmax))); n++;
+  }
+  hm.instanceMatrix.needsUpdate = true; if (hm.instanceColor) hm.instanceColor.needsUpdate = true;
+  S.add(hm); O.heads = hm;
+  O.headsLabel = add(label3('28 heads per layer', {size: .34, color: '--muted'}), 8.6, TOP + .7, 0);
+  // the real embedding vector of " is"
+  O.vec = add(new THREE.Sprite(new THREE.SpriteMaterial({map: vecTexture(TK[FOLLOW].row)})), 7.3, .55, 2.2); O.vec.scale.set(2.2, 1.93, 1);
+  O.vecLabel = add(label3('row 374 · 3,584 real numbers', {size: .32, color: '--ink'}), 7.3, -.75, 2.2);
+  // moving packet
+  O.packet = add(new THREE.Mesh(new THREE.SphereGeometry(.22, 24, 16), new THREE.MeshBasicMaterial({color: col('--embed')})), TX[FOLLOW], 1, 0);
+  O.halo = add(new THREE.Mesh(new THREE.SphereGeometry(.42, 24, 16), new THREE.MeshBasicMaterial({color: col('--embed'), transparent: true, opacity: .22, depthWrite: false})), 0, 0, 0, O.packet);
+  O.ffnBox = add(new THREE.Mesh(new THREE.BoxGeometry(.8, .22, .55), mat(col('--ffn'), .8)), TX[FOLLOW], LY(0) + .4, 0);
+  O.ffnLabel = add(label3('3,584 → 18,944 → 3,584', {size: .32, color: '--ffn'}), TX[FOLLOW] - .3, LY(0) + 1.05, .9, O.ffnBox.parent);
+  O.arcs = new THREE.Group(); S.add(O.arcs);
+  // top: final norm, output head, probabilities
+  O.top = new THREE.Group(); S.add(O.top);
+  const tor = add(new THREE.Mesh(new THREE.TorusGeometry(.55, .07, 10, 40), mat(col('--norm'))), TX[FOLLOW], TOP + 1, 0, O.top); tor.rotation.x = Math.PI / 2;
+  add(label3('output_norm', {size: .34, color: '--norm'}), TX[FOLLOW] + 1.7, TOP + 1, 0, O.top);
+  add(new THREE.Mesh(new THREE.BoxGeometry(12.4, .1, 2.2), mat(col('--embed'), .35)), 1, TOP + 2, 0, O.top);
+  add(label3('output head · 3,584 → 152,064 scores', {size: .36, color: '--muted'}), 1, TOP + 1.65, 1.5, O.top);
+  const bars = (top, extraLabel) => {
+    const G = new THREE.Group(); S.add(G); const m = top[0][1];
+    top.forEach(([t, p], k) => {
+      const h = Math.max(.04, p / m * 3.2), x = -4.6 + k * 1.45;
+      add(new THREE.Mesh(new THREE.BoxGeometry(.9, h, .9), mat(k === 0 ? col('--attn') : col('--muted'), k === 0 ? 1 : .55)), x, TOP + 2.1 + h / 2, 0, G);
+      add(label3(tokTxt(t), {size: .34, color: k === 0 ? '--ink' : '--muted', bold: k === 0}), x, TOP + 2.45 + h, 0, G);
+      add(label3(pctf(p), {size: .3, color: '--muted'}), x, TOP + 2.85 + h, 0, G);
+    });
+    if (extraLabel) add(label3(extraLabel, {size: .36, color: '--muted'}), 1, TOP + 6.9, 0, G);
+    return G;
+  };
+  O.bars0 = bars(P0, 'next token after "…France is"');
+  O.bars1 = bars(P1, 'next token after "…France is Paris"');
+  // the appended token
+  O.ghost = new THREE.Group(); S.add(O.ghost);
+  add(label3(`${tokTxt(TK[5].text)}  #${TK[5].id}  (new)`, {size: .4, color: '--attn', bold: true}), GX + .4, .5, 0, O.ghost);
+  add(new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, colH, 8), mat(col('--attn'), .7)), GX, 1 + colH / 2, 0, O.ghost);
+  L3.scene = S; L3.O = O;
+  applyMetric(); applyHeads();
+}
+function clearArcs(){ const g = L3.O.arcs; while (g.children.length){ const c = g.children.pop(); c.geometry.dispose(); c.material.dispose(); } }
+function drawArcs(L){
+  clearArcs(); const y = LY(L), w = attnWeights(L), cA = col('--attn');
+  for (let j = 0; j < FOLLOW; j++){
+    const a = new THREE.Vector3(TX[FOLLOW], y + .05, 0), b = new THREE.Vector3(TX[j], y + .05, 0);
+    const mid = a.clone().add(b).multiplyScalar(.5).add(new THREE.Vector3(0, .7 + (FOLLOW - j) * .45, .9));
+    const geo = new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, b), 40, .035 + w[j] * .14, 8, false);
+    L3.O.arcs.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color: cA, transparent: true, opacity: .85})));
+  }
+}
+function applyMetric(){
+  const O = L3.O, m = M3[L3.metric], cS = col('--surface');
+  let rel = () => 0;
+  if (m.get){ const f = m.log ? Math.log : x => x, vals = ALL.map(L => f(m.get(L))), lo = Math.min(...vals), hi = Math.max(...vals); rel = L => hi > lo ? (f(m.get(L)) - lo) / (hi - lo) : 0; }
+  for (let L = 0; L < NL; L++) for (const [arr, key, cv] of [[O.attn, 'attn', '--attn'], [O.ffn, 'ffn', '--ffn']]){
+    const p = arr[L], on = m.on === key, r = on ? rel(L) : 0;
+    p.material.color = cS.clone().lerp(col(cv), on ? .2 + .8 * r : .75);
+    p.material.opacity = on ? .12 + .78 * r : (m.on ? .1 : .24);
+  }
+  $('#m3legend').textContent = m.get ? `Brighter, more solid ${m.on === 'attn' ? 'blue' : 'orange'} plates mean a higher ${m.label} in that layer (real values).` : 'Blue plates are attention and orange plates are feed-forward.';
+}
+function applyHeads(){ L3.O.heads.visible = L3.O.headsLabel.visible = L3.heads; }
+function applyStep(immediate){
+  const st = STEPS3[stepIdx], O = L3.O, sh = st.show || {}, [tx, ty, tz, r, th, ph] = st.cam;
+  L3.goal = {target: new THREE.Vector3(tx, ty, tz), r, th, ph};
+  if (immediate || !L3.orbit) L3.orbit = {target: L3.goal.target.clone(), r, th, ph};
+  O.rows.forEach(x => x.visible = !!sh.rows); O.rowLines.forEach(x => x.visible = !!sh.rows);
+  O.vec.visible = O.vecLabel.visible = !!sh.vec;
+  clearArcs(); if (sh.arcs != null) drawArcs(sh.arcs);
+  O.ffnBox.visible = O.ffnLabel.visible = sh.ffn != null; O.ffnBox.scale.x = 1;
+  O.top.visible = !!sh.top; O.bars0.visible = !!sh.bars0; O.bars1.visible = !!sh.bars1; O.ghost.visible = !!sh.ghost;
+  O.packet.visible = st.packet != null || !!st.climb;
+  if (st.packet === 'base') O.packet.position.set(TX[FOLLOW], 1, 0);
+  else if (typeof st.packet === 'number') O.packet.position.set(TX[FOLLOW], st.packet, 0);
+  else if (st.climb) O.packet.position.set(TX[FOLLOW], LY(0), 0);
+  L3.anim = st.climb ? {start: performance.now(), dur: RM ? 1 : 9000, lastL: -1} : null;
+}
+function resize3(){
+  if (!L3) return; const host = $('#scene'), w = host.clientWidth, h = host.clientHeight; if (!w || !h) return;
+  L3.renderer.setSize(w, h, false); L3.camera.aspect = w / h; L3.camera.updateProjectionMatrix();
+}
+function pick3(e){
+  const el = L3.renderer.domElement, r = el.getBoundingClientRect();
+  const v = new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+  const rc = new THREE.Raycaster(); rc.setFromCamera(v, L3.camera);
+  const targets = [...L3.O.attn, ...L3.O.ffn]; if (L3.heads) targets.push(L3.O.heads);
+  return rc.intersectObjects(targets, false)[0];
+}
+function hover3(e){
+  const h = pick3(e), el = L3.renderer.domElement;
+  if (!h){ el.style.cursor = 'grab'; return hideTip(); }
+  el.style.cursor = 'pointer';
+  if (h.object === L3.O.heads){ const L = Math.floor(h.instanceId / 28), hd = h.instanceId % 28; return showTip(e, `layer ${L} · query head ${hd} (k/v group ${Math.floor(hd / 7)})<br>max |q bias| ${D.qhead[L][hd]}<br>click to open this layer`); }
+  const {kind, L} = h.object.userData, m = M3[L3.metric];
+  showTip(e, `layer ${L} (${ord(L + 1)} of ${NL}) · ${kind === 'attn' ? 'attention' : 'feed-forward'}${m.get && m.on === kind ? `<br>${m.label}: ${+m.get(L).toFixed(4)}` : ''}<br>click to open this layer`);
+}
+function click3(e){
+  const h = pick3(e); if (!h) return; stopPlay(); hideTip();
+  if (h.object === L3.O.heads){ state.layer = Math.floor(h.instanceId / 28); state.tensor = 'attn_q.bias'; }
+  else { state.layer = h.object.userData.L; state.tensor = h.object.userData.kind === 'attn' ? 'attn_q.weight' : 'ffn_gate.weight'; }
+  location.hash = 'anatomy';
+}
+function bindOrbit(){
+  const el = L3.renderer.domElement; let drag = null;
+  el.tabIndex = 0;
+  el.addEventListener('contextmenu', e => e.preventDefault());
+  el.addEventListener('pointerdown', e => { drag = {x: e.clientX, y: e.clientY, moved: 0, pan: e.button === 1 || e.button === 2 || e.shiftKey}; el.focus({preventScroll: true}); });
+  el.addEventListener('pointermove', e => {
+    if (drag && e.buttons){
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; drag.moved += Math.abs(dx) + Math.abs(dy);
+      if (drag.moved > 3){ if (drag.pan) panBy(dx, dy); else { const G = L3.goal; G.th -= dx * .006; G.ph = Math.max(.12, Math.min(1.8, G.ph - dy * .006)); L3.orbit.th = G.th; L3.orbit.ph = G.ph; } el.style.cursor = drag.pan ? 'move' : 'grabbing'; hideTip(); }
+      return;
+    }
+    hover3(e);
+  });
+  el.addEventListener('pointerup', e => { if (drag && drag.moved <= 3 && e.button === 0 && !e.shiftKey) click3(e); drag = null; });
+  el.addEventListener('keydown', e => {
+    const k = e.key, step = Math.max(.6, L3.goal.r * .05);
+    if (k === 'ArrowUp') moveBy(0, step); else if (k === 'ArrowDown') moveBy(0, -step);
+    else if (k === 'ArrowLeft') moveBy(-step, 0); else if (k === 'ArrowRight') moveBy(step, 0);
+    else if (k === '+' || k === '=') zoom3(1 / 1.15); else if (k === '-' || k === '_') zoom3(1.15); else return;
+    e.preventDefault();
+  });
+  el.addEventListener('pointercancel', () => { drag = null; });
+  el.addEventListener('pointerleave', () => { hideTip(); });
+  el.addEventListener('wheel', e => { e.preventDefault(); zoom3(e.deltaY > 0 ? 1.1 : 1 / 1.1); }, {passive: false});
+}
+function panBy(dx, dy){
+  const m = L3.camera.matrixWorld, k = L3.orbit.r * .0016;
+  const d = new THREE.Vector3().setFromMatrixColumn(m, 0).multiplyScalar(-dx * k).add(new THREE.Vector3().setFromMatrixColumn(m, 1).multiplyScalar(dy * k));
+  L3.orbit.target.add(d); L3.goal.target.add(d);
+}
+function moveBy(side, up){
+  if (!L3) return; const right = new THREE.Vector3().setFromMatrixColumn(L3.camera.matrixWorld, 0); right.y = 0; right.normalize();
+  const d = right.multiplyScalar(side).add(new THREE.Vector3(0, up, 0));
+  const t = L3.goal.target.clone().add(d); t.y = Math.max(-4, Math.min(TOP + 8, t.y)); L3.goal.target.copy(t);
+}
+function zoom3(f){ if (L3) L3.goal.r = Math.max(5, Math.min(95, L3.goal.r * f)); }
+function loop3(now){
+  requestAnimationFrame(loop3);
+  if (!L3 || $('#v-learn').hidden) return;
+  const o = L3.orbit, g = L3.goal, k = RM ? 1 : .07, O = L3.O;
+  o.r += (g.r - o.r) * k; o.th += (g.th - o.th) * k; o.ph += (g.ph - o.ph) * k; o.target.lerp(g.target, k);
+  const c = L3.camera;
+  c.position.set(o.target.x + o.r * Math.sin(o.ph) * Math.sin(o.th), o.target.y + o.r * Math.cos(o.ph), o.target.z + o.r * Math.sin(o.ph) * Math.cos(o.th));
+  c.lookAt(o.target);
+  if (L3.anim){
+    const a = L3.anim, p = Math.min(1, (now - a.start) / a.dur), y = LY(0) + p * (LY(NL - 1) + .4 - LY(0));
+    O.packet.position.y = y;
+    const Li = Math.min(NL - 1, Math.floor((y - LY(0)) / .9));
+    if (Li !== a.lastL && p < 1){ drawArcs(Li); a.lastL = Li; }
+    if (p >= 1){ clearArcs(); L3.anim = null; }
+  }
+  if (O.ffnBox.visible && !RM) O.ffnBox.scale.x = 1 + 3.2 * (.5 + .5 * Math.sin(now / 520));
+  if (!RM) O.halo.scale.setScalar(1 + .15 * Math.sin(now / 300));
+  L3.renderer.render(L3.scene, c);
+}
+function initLearn(){
+  renderStepPanel();
+  if (L3){ resize3(); return; }
+  const host = $('#scene');
+  if (!window.THREE){ host.innerHTML = `<p class="cap" style="padding:16px">The 3D view needs the three.js library, which didn't load. The steps still explain each stage.</p>`; return; }
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({antialias: true}); } catch (err){ host.innerHTML = `<p class="cap" style="padding:16px">This browser couldn't start 3D graphics (WebGL). The steps still explain each stage.</p>`; return; }
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  host.appendChild(renderer.domElement);
+  L3 = {renderer, camera: new THREE.PerspectiveCamera(38, 1, .1, 600), scene: null, O: null, orbit: null, goal: null, anim: null, metric: 'k_bias_maxabs', heads: true};
+  $('#m3').innerHTML = Object.entries(M3).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('');
+  $('#m3').value = L3.metric;
+  $('#m3').onchange = () => { L3.metric = $('#m3').value; applyMetric(); };
+  $('#h3').onchange = () => { L3.heads = $('#h3').checked; applyHeads(); };
+  $('#zin').onclick = () => zoom3(1 / 1.25); $('#zout').onclick = () => zoom3(1.25);
+  const mv = () => Math.max(.8, L3.goal.r * .07);
+  $('#mup').onclick = () => moveBy(0, mv()); $('#mdown').onclick = () => moveBy(0, -mv());
+  $('#mleft').onclick = () => moveBy(-mv(), 0); $('#mright').onclick = () => moveBy(mv(), 0);
+  $('#zreset').onclick = () => { const [tx, ty, tz, r, th, ph] = STEPS3[stepIdx].cam; L3.goal = {target: new THREE.Vector3(tx, ty, tz), r, th, ph}; };
+  buildScene(); bindOrbit();
+  new ResizeObserver(resize3).observe(host); resize3();
+  const rebuild = () => { buildScene(); applyStep(false); };
+  matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', rebuild);
+  new MutationObserver(rebuild).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
+  applyStep(true);
+  requestAnimationFrame(loop3);
+}
+
+/* ---------- glossary ---------- */
+const GLOSS = [
+  ['Token', 'A piece of text from a fixed list: a word, part of a word or a symbol. The model reads and writes tokens, not letters.', '152,064 tokens. "␣Paris" is token 12,095.'],
+  ['Parameter (weight)', 'One number the model learned during training. Everything the model knows is stored in these numbers.', '7,615,616,512 parameters in the model file.'],
+  ['Tensor', 'A block of numbers with a shape, such as a list (1-D) or a table (2-D).', '339 tensors. blk.0.attn_q.weight is a 3,584 × 3,584 table.'],
+  ['Vector and dimension', 'A vector is a list of numbers, and each position in it is a dimension.', 'Each token is carried as a vector of 3,584 numbers.'],
+  ['Matrix multiply (projection)', 'Multiplying a vector by a table of weights to get a new vector, often of a different length. Almost all of the model\'s work is this operation.', 'attn_q turns 3,584 numbers into 3,584 query numbers, and ffn_up turns 3,584 into 18,944.'],
+  ['Embedding', 'The starting vector for a token, looked up from a table.', 'token_embd has 152,064 rows of 3,584 numbers.'],
+  ['Residual stream', 'The token\'s running vector. Each layer reads it and adds an update instead of replacing it.', '3,584 numbers wide. It is the purple column in the 3D view.'],
+  ['Layer (block)', 'One round of attention followed by feed-forward. A model stacks many identical layers.', '28 layers, blk.0 to blk.27.'],
+  ['Attention', 'The step where a token gathers information from earlier tokens.', 'Runs once per layer, with 28 heads.'],
+  ['Head', 'One independent attention pattern. Several heads run side by side in each layer, each free to look for something different.', '28 query heads of 128 numbers each per layer.'],
+  ['Query, key, value', 'Query: what this token is looking for. Key: what a token offers to be matched on. Value: what it passes along when matched.', '4 key/value heads shared by 28 query heads, known as grouped-query attention.'],
+  ['Bias', 'A fixed number added after a matrix multiply. It is the same for every token.', 'Qwen2 has biases on q, k and v. Some are very large, up to 414.'],
+  ['RoPE (rotary position)', 'Rotates queries and keys by an amount that depends on the token\'s position, so attention can tell word order.', `Base frequency ${nf(D.meta['qwen2.rope.freq_base'])}, supporting a 32,768-token context.`],
+  ['Softmax', 'Turns a list of scores into probabilities that are all positive and add up to 100%.', 'Used inside attention and to choose the next token.'],
+  ['Feed-forward network (FFN, MLP)', 'A per-token step that expands the vector, applies an on/off function and compresses it back.', '3,584 → 18,944 → 3,584.'],
+  ['SiLU and gating', 'SiLU is a smooth on/off function. In a gated FFN, one branch decides how much of the other branch passes through.', 'Computes SiLU(gate) × up.'],
+  ['RMSNorm', 'Rescales a vector to a standard size, then multiplies by learned gains. Keeps the numbers stable.', '57 of them: 2 in each layer and 1 at the end.'],
+  ['Logits', 'The raw scores for every possible next token, before softmax.', '152,064 scores from output.weight.'],
+  ['Temperature', 'How strongly the model prefers the top token. 0 always picks the top token, and higher values add randomness.', 'Ollama uses 0.8 unless you set it.'],
+  ['Context window and KV cache', 'How many tokens the model can look back over. Earlier tokens\' keys and values are stored so they are not recalculated.', '32,768 tokens.'],
+  ['Quantization', 'Storing weights with fewer bits to save memory, at a small cost in precision.', 'Q4_K_M uses about 4.5–6.6 bits per weight: 4.68 GB instead of about 15 GB.'],
+  ['Base and instruct models', 'A base model only continues text. An instruct model is trained further to follow instructions and chat.', 'Qwen2.5 7B Instruct, built on Qwen2.5 7B.'],
+];
+function renderGloss(){
+  const q = ($('#gq').value || '').toLowerCase();
+  const rows = GLOSS.filter(g => !q || g.join(' ').toLowerCase().includes(q));
+  $('#gloss').innerHTML = rows.map(([t, d, x]) => `<div><dt>${esc(t)}</dt><dd>${esc(d)}<div class="q">In Qwen2.5-7B: ${esc(x)}</div></dd></div>`).join('') || '<p class="cap">No terms match.</p>';
+}
+$('#gq').addEventListener('input', renderGloss);
+renderGloss();
+
+/* ---------- tabs ---------- */
+const TABS = ['learn', 'anatomy', 'budget', 'heads', 'profile', 'tokens'];
+const rendered = {};
+function setTab(name){
+  if (!TABS.includes(name)) name = 'learn';
+  if (name !== 'learn' && typeof stopPlay === 'function' && playTimer) stopPlay();
+  document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === name));
+  TABS.forEach(t => $('#v-' + t).hidden = t !== name);
+  hideTip();
+  if (name === 'learn') initLearn();
+  if (name === 'anatomy') renderAnatomy();
+  if (name === 'budget' && !rendered.budget){ renderBudget(); rendered.budget = 1; }
+  if (name === 'heads') renderHeads();
+  if (name === 'profile') renderProfile();
+  if (name === 'tokens' && !rendered.tokens){ renderTokens(); rendered.tokens = 1; }
+}
+document.querySelector('[role=tablist]').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b){ if (location.hash === '#' + b.dataset.tab) setTab(b.dataset.tab); else location.hash = b.dataset.tab; } });
+addEventListener('hashchange', () => { setTab(location.hash.slice(1)); scrollTo({top: 0}); });
+setTab(location.hash.slice(1));
+</script>
